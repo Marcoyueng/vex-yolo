@@ -1,0 +1,11 @@
+.venv*/
+__pycache__/
+*.pyc
+data/
+runs/
+weights/
+*.pt
+*.mp4
+*.avi
+*.jpg
+*.png
