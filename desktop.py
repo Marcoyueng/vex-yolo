@@ -9,10 +9,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk, ImageOps
+from schema import CLASSES, COLORS, REGIONS, ensure_schema
+from scoring import yellow_score
 
 ROOT = Path(__file__).resolve().parent
-CLASSES = ('robot', 'pin', 'cup')
-COLORS = ('#38bdf8', '#fbbf24', '#fb7185')
 
 
 def encode_boxes(boxes, width, height):
@@ -25,7 +25,7 @@ def decode_boxes(text, width, height):
     boxes = []
     for line in text.splitlines():
         c, x, y, w, h = map(float, line.split())
-        if int(c) != c or not 0 <= c < 3 or not all(0 <= v <= 1 for v in (x, y, w, h)) or w <= 0 or h <= 0:
+        if int(c) != c or not 0 <= c < len(CLASSES) or not all(0 <= v <= 1 for v in (x, y, w, h)) or w <= 0 or h <= 0:
             raise ValueError('标注格式无效')
         if x-w/2 < -1e-6 or y-h/2 < -1e-6 or x+w/2 > 1.000001 or y+h/2 > 1.000001:
             raise ValueError('标注框超出图片边界')
@@ -55,21 +55,24 @@ class Workbench(tk.Tk):
         self.closing = False
         self.scale, self.offset = 1, (0, 0)
         self.start = None
-        self.current_class = tk.StringVar(value='robot')
-        self.label_dir = tk.StringVar(value=str(ROOT / 'data' / 'annotations'))
-        self.status = tk.StringVar(value='打开图片文件夹，开始标注；robot / pin / cup')
+        self.current_class = tk.StringVar(value='robot_red')
+        self.label_dir = tk.StringVar(value=str(ROOT / 'data' / 'annotations-v2'))
+        self.status = tk.StringVar(value='新版类别：红蓝机器人、Toggle 状态、Goal、彩色 Pin Half、Cup')
         header = ttk.Frame(self, padding=16)
         header.pack(fill='x')
         ttk.Label(header, text='VEX YOLO  /  OVERRIDE', font=('Microsoft YaHei UI', 20, 'bold')).pack(anchor='w')
-        ttk.Label(header, text='本地标注 · 素材准备 · 模型检测     |     专用模型尚需训练，当前不提供自动预标注').pack(anchor='w', pady=(6, 0))
+        ttk.Label(header, text='Override 2.1 · 红蓝机器人跟踪 · Toggle 状态标注 · 黄色 Pin Half 归属估算').pack(anchor='w', pady=(6, 0))
         tabs = ttk.Notebook(self)
         tabs.pack(fill='both', expand=True, padx=16)
         annotation = ttk.Frame(tabs, padding=12)
         jobs = ttk.Frame(tabs, padding=16)
+        scoring = ttk.Frame(tabs, padding=16)
         tabs.add(annotation, text='图片标注')
         tabs.add(jobs, text='抽帧 / 训练 / 检测')
+        tabs.add(scoring, text='区域与黄色半段计分')
         self.build_annotation(annotation)
         self.build_jobs(jobs)
+        self.build_scoring(scoring)
         ttk.Label(self, textvariable=self.status, padding=12).pack(fill='x')
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.after(100, self.poll)
@@ -85,7 +88,7 @@ class Workbench(tk.Tk):
         self.button(bar, '打开图片文件夹', self.open_folder)
         self.button(bar, '标注保存位置', self.choose_labels)
         ttk.Label(bar, text='类别').pack(side='left')
-        ttk.Combobox(bar, values=CLASSES, textvariable=self.current_class, state='readonly', width=9).pack(side='left', padx=8)
+        ttk.Combobox(bar, values=CLASSES, textvariable=self.current_class, state='readonly', width=17).pack(side='left', padx=8)
         self.button(bar, '撤销最后一个框', self.undo)
         self.button(bar, '保存标注', self.save)
         ttk.Label(parent, textvariable=self.label_dir).pack(anchor='w', pady=8)
@@ -99,7 +102,7 @@ class Workbench(tk.Tk):
         bar.pack(fill='x', pady=(10, 0))
         self.button(bar, '上一张', lambda: self.navigate(-1))
         self.button(bar, '下一张', lambda: self.navigate(1))
-        ttk.Label(bar, text='拖动鼠标画框；选错类别或框选范围可撤销后重画。无目标图片也需保存空标注。').pack(side='left')
+        ttk.Label(bar, text='四台车按阵营分类；四个 Toggle 按颜色分类；九个 Goal 都选 goal。编号由跟踪/场地映射负责。').pack(side='left')
 
     def choose_labels(self):
         if not self.confirm_dirty():
@@ -131,6 +134,7 @@ class Workbench(tk.Tk):
 
     def load_image(self):
         try:
+            ensure_schema(self.label_dir.get(), create=True)
             with Image.open(self.files[self.index]) as image:
                 self.image = ImageOps.exif_transpose(image).convert('RGB')
             label = self.label_path()
@@ -207,6 +211,7 @@ class Workbench(tk.Tk):
         if self.image is None:
             return False
         try:
+            ensure_schema(self.label_dir.get(), create=True)
             target = self.label_path()
             target.parent.mkdir(parents=True, exist_ok=True)
             temp = target.with_suffix('.txt.tmp')
@@ -250,6 +255,8 @@ class Workbench(tk.Tk):
         self.output = self.field(parent, '结果保存文件夹', str(ROOT/'runs/desktop'), lambda: filedialog.askdirectory())
         self.confidence = self.field(parent, '置信度阈值', '0.35')
         self.device = self.field(parent, '运行设备', 'cpu')
+        self.tracking = tk.BooleanVar(value=True)
+        ttk.Checkbutton(parent, text='启用视频目标跟踪 ID（需要训练好的新版模型；遮挡后 ID 可能变化）', variable=self.tracking).pack(anchor='w')
         ttk.Label(parent, text='摄像头：在输入栏填写 0；检测会打开实时预览窗口。每次检测自动新建结果目录。').pack(anchor='w', pady=4)
         row = ttk.Frame(parent); row.pack(fill='x', pady=8)
         self.button(row, '开始检测', self.detect)
@@ -260,7 +267,7 @@ class Workbench(tk.Tk):
         row = ttk.Frame(parent); row.pack(fill='x', pady=6)
         self.button(row, '从所选视频抽帧', self.extract)
         ttk.Label(row, text='每 5 秒一张，最多 300 张，保存到 data/unlabelled').pack(side='left')
-        self.dataset = self.field(parent, '训练数据文件夹', str(ROOT/'data/override'), lambda: filedialog.askdirectory())
+        self.dataset = self.field(parent, '训练数据文件夹', str(ROOT/'data/override-v2'), lambda: filedialog.askdirectory())
         self.epochs = self.field(parent, '训练轮数', '100')
         row = ttk.Frame(parent); row.pack(fill='x', pady=6)
         self.button(row, '检查数据', lambda: self.run_job(['check', '--data', self.dataset.get()]))
@@ -281,8 +288,78 @@ class Workbench(tk.Tk):
             messagebox.showerror('缺少输入', '请选择 Override 专用 .pt 权重，并指定图片、视频或摄像头编号。'); return
         from datetime import datetime
         self.last_output = Path(self.output.get()) / datetime.now().strftime('%Y%m%d-%H%M%S-%f')
-        self.run_job(['predict', '--weights', self.weights.get(), '--source', self.source.get(),
-                      '--conf', str(conf), '--device', self.device.get(), '--output', str(self.last_output), '--show'])
+        arguments = ['predict', '--weights', self.weights.get(), '--source', self.source.get(),
+                     '--conf', str(conf), '--device', self.device.get(), '--output', str(self.last_output), '--show']
+        if self.tracking.get():
+            arguments.append('--track')
+        self.run_job(arguments)
+
+    def build_scoring(self, parent):
+        ttk.Label(parent, text='标准 V5RC 对抗赛 · SC2–SC7 · 人工复核输入', font=('Microsoft YaHei UI', 15, 'bold')).pack(anchor='w')
+        ttk.Label(parent, text='这里只计算黄色 Pin Half 分数，当前不从视频自动填数。未知留空，不会按 0 分认定。').pack(anchor='w', pady=6)
+        ttk.Label(parent, text='区域名是固定位置，不代表当前归属。Goal 编号是本项目约定，不是官方 AprilTag 编号。').pack(anchor='w')
+        self.toggle_inputs = {}
+        for region in REGIONS:
+            row = ttk.Frame(parent); row.pack(fill='x', pady=7)
+            ttk.Label(row, text=region, width=10).pack(side='left')
+            values = []
+            for label, options in [('颜色', ('unknown', 'red', 'blue', 'yellow')),
+                                   ('完全落位静止', ('未知', '是', '否')), ('接触机器人', ('未知', '是', '否'))]:
+                ttk.Label(row, text=label).pack(side='left', padx=8)
+                var = tk.StringVar(value=options[0])
+                ttk.Combobox(row, values=options, textvariable=var, state='readonly', width=10).pack(side='left')
+                values.append(var)
+            self.toggle_inputs[region] = values
+        ttk.Separator(parent).pack(fill='x', pady=6)
+        ttk.Label(parent, text='填写各 Goal 已确认 Placed 且可见的黄色半段数量；0 表示确认没有，空白表示未知。').pack(anchor='w')
+        grid = ttk.Frame(parent); grid.pack(fill='x', pady=8)
+        self.goal_counts = {}
+        for i in range(9):
+            region = 'midfield' if i == 0 else REGIONS[(i-1)//2]
+            cell = ttk.Frame(grid); cell.grid(row=i//3, column=i%3, padx=12, pady=5, sticky='w')
+            ttk.Label(cell, text=f'G{i} · {region}', width=17).pack(side='left')
+            var = tk.StringVar()
+            ttk.Entry(cell, textvariable=var, width=7).pack(side='left')
+            self.goal_counts[f'G{i}'] = var
+        self.mid_red = self.field(parent, '中央红方车数量', '')
+        self.mid_blue = self.field(parent, '中央蓝方车数量', '')
+        row = ttk.Frame(parent); row.pack(fill='x', pady=8)
+        self.phase = tk.StringVar(value='end')
+        ttk.Label(row, text='结算阶段').pack(side='left', padx=8)
+        ttk.Combobox(row, values=('end', 'autonomous'), textvariable=self.phase, state='readonly', width=14).pack(side='left', padx=8)
+        self.button(row, '计算黄色半段分数', self.calculate_score)
+        self.button(row, '导出复核记录', self.export_score)
+        self.score_text = tk.StringVar(value='尚未计算。end=比赛结束；autonomous=自动阶段（中央黄色半段不计入）。')
+        ttk.Label(parent, textvariable=self.score_text, wraplength=1050).pack(anchor='w', pady=8)
+        ttk.Label(parent, text='未落位或仍接触机器人 → 中立；无法确认 → 待复核。普通二维框不能单独证明套叠、遮挡或中央区域相交。', wraplength=1050).pack(anchor='w')
+
+    def calculate_score(self):
+        def number(value):
+            return int(value) if value.strip() else None
+        try:
+            flags = {'未知': None, '是': True, '否': False}
+            toggles = {region: {'color': v[0].get(), 'settled': flags[v[1].get()], 'robot_contact': flags[v[2].get()]}
+                       for region, v in self.toggle_inputs.items()}
+            counts = {goal: number(var.get()) for goal, var in self.goal_counts.items()}
+            result = yellow_score(toggles, counts, number(self.mid_red.get()), number(self.mid_blue.get()), self.phase.get())
+            state = '已填状态下的小计' if result['complete'] else '已确认部分小计；仍有待复核项'
+            owners = ' / '.join(f'{k}: {v}' for k, v in result['owners'].items())
+            self.score_text.set(f'{state}：红方 {result["red"]} 分，蓝方 {result["blue"]} 分（仅黄色半段）。\n{owners}')
+            self.score_record = {'rule_version': 'Override 2.1 V5RC', 'source': 'manual_review', 'phase': self.phase.get(),
+                                 'toggles': toggles, 'midfield_red': number(self.mid_red.get()),
+                                 'midfield_blue': number(self.mid_blue.get()), 'result': result}
+            return True
+        except (ValueError, TypeError) as error:
+            messagebox.showerror('输入错误', str(error)); return False
+
+    def export_score(self):
+        if self.calculate_score():
+            target = filedialog.asksaveasfilename(defaultextension='.json', filetypes=[('复核记录', '*.json')])
+            if target:
+                try:
+                    Path(target).write_text(json.dumps(self.score_record, ensure_ascii=False, indent=2), encoding='utf-8')
+                except OSError as error:
+                    messagebox.showerror('导出失败', str(error))
 
     def extract(self):
         if not Path(self.source.get()).is_file():
