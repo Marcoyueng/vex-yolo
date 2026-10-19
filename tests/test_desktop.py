@@ -15,6 +15,6 @@ class AnnotationTests(unittest.TestCase):
         self.assertEqual(decode_boxes('', 1280, 720), [])
 
     def test_invalid_class_and_bounds(self):
-        for row in ('3 .5 .5 .2 .2', '0 nan .5 .2 .2', '1 .9 .9 .5 .5', '1.5 .5 .5 .2 .2'):
+        for row in ('11 .5 .5 .2 .2', '0 nan .5 .2 .2', '1 .9 .9 .5 .5', '1.5 .5 .5 .2 .2'):
             with self.subTest(row=row), self.assertRaises(ValueError):
                 decode_boxes(row, 1280, 720)
