@@ -4,11 +4,12 @@ import json
 import math
 from pathlib import Path
 
-CLASSES = ['robot', 'pin', 'cup']
+from schema import CLASSES, ensure_schema
 
 
 def validate_dataset(root):
     """Require explicit annotations, valid boxes, and isolated video sessions."""
+    ensure_schema(root)
     groups = []
     counts = [0] * len(CLASSES)
     for split in ('train', 'val'):
@@ -37,8 +38,11 @@ def validate_dataset(root):
                 counts[cls] += 1
     if groups[0] & groups[1]:
         raise ValueError('Train/val share video session prefixes; split by video, not adjacent frames')
-    if any(n == 0 for n in counts):
-        raise ValueError(f'All classes require annotations: {dict(zip(CLASSES, counts))}')
+    if not any(counts):
+        raise ValueError('At least one positive annotation is required')
+    missing = [name for name, n in zip(CLASSES, counts) if n == 0]
+    if missing:
+        print('Warning: untrained classes without annotations: ' + ', '.join(missing))
     config = root / 'dataset.yaml'
     config.write_text('path: ' + json.dumps(root.resolve().as_posix()) + '\ntrain: images/train\nval: images/val\nnames:\n'
                       + ''.join(f'  {i}: {name}\n' for i,name in enumerate(CLASSES)), encoding='utf-8')
@@ -122,14 +126,18 @@ def predict(args):
         raise ValueError('Output already contains detections.jsonl; choose a new output directory')
     source = int(args.source) if args.source.isdecimal() else args.source
     with report.open('x', encoding='utf-8') as f:
-        for index, result in enumerate(model.predict(source=source, stream=True, save=True,
+        runner = model.track if args.track else model.predict
+        tracking = {'tracker': 'bytetrack.yaml'} if args.track else {}
+        for index, result in enumerate(runner(source=source, stream=True, save=True,
                  show=args.show, project=str(out), name='annotated', exist_ok=True,
-                 conf=args.conf, imgsz=args.imgsz, device=args.device)):
+                 conf=args.conf, imgsz=args.imgsz, device=args.device, **tracking)):
             boxes = result.boxes
             detections = []
-            for xyxy, cls, conf in zip(boxes.xyxy.cpu().tolist(), boxes.cls.cpu().tolist(), boxes.conf.cpu().tolist()):
+            ids = boxes.id.cpu().tolist() if boxes.id is not None else [None] * len(boxes)
+            for xyxy, cls, conf, track_id in zip(boxes.xyxy.cpu().tolist(), boxes.cls.cpu().tolist(), boxes.conf.cpu().tolist(), ids):
                 detections.append({'class_id': int(cls), 'class': CLASSES[int(cls)],
-                                   'confidence': conf, 'xyxy': xyxy})
+                                   'confidence': conf, 'xyxy': xyxy,
+                                   'track_id': int(track_id) if track_id is not None else None})
             f.write(json.dumps({'frame': index, 'source': str(result.path),
                                 'height': result.orig_shape[0], 'width': result.orig_shape[1],
                                 'detections': detections}, ensure_ascii=False) + '\n')
@@ -155,10 +163,10 @@ def main():
     p.add_argument('--every', type=positive, default=3); p.add_argument('--limit', type=int, default=300)
     p.add_argument('--output', default='data/unlabelled'); p.set_defaults(func=extract)
     p = sub.add_parser('check', help='Validate annotations and write dataset.yaml')
-    p.add_argument('--data', default='data/override')
+    p.add_argument('--data', default='data/override-v2')
     p.set_defaults(func=lambda a: print(validate_dataset(Path(a.data).resolve())))
     p = sub.add_parser('train')
-    p.add_argument('--data', default='data/override'); p.add_argument('--base', default='yolo11n.pt')
+    p.add_argument('--data', default='data/override-v2'); p.add_argument('--base', default='yolo11n.pt')
     p.add_argument('--epochs', type=int, default=100); p.add_argument('--batch', type=int, default=8)
     p.add_argument('--imgsz', type=int, default=960); p.add_argument('--device', default='cpu'); p.set_defaults(func=train)
     p = sub.add_parser('predict')
@@ -166,6 +174,7 @@ def main():
     p.add_argument('--output', default='runs/predict/override'); p.add_argument('--conf', type=float, default=.35)
     p.add_argument('--imgsz', type=int, default=960); p.add_argument('--device', default='cpu')
     p.add_argument('--show', action='store_true'); p.set_defaults(func=predict)
+    p.add_argument('--track', action='store_true', help='Track objects across video frames with ByteTrack IDs')
     args = parser.parse_args()
     if hasattr(args, 'limit') and args.limit <= 0:
         parser.error('--limit must be positive')
