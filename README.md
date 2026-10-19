@@ -1,6 +1,6 @@
 # VEX YOLO — Override
 
-第一阶段：检测机器人、Pin 和 Cup，输出边框与置信度。
+Override 2.1：红蓝机器人、Toggle 颜色状态、Goal、彩色 Pin Half 和 Cup 标注与训练；视频跟踪 ID 与人工复核计分。Windows 双击 `启动软件.cmd`，完整说明见 [桌面软件说明](桌面软件说明.md)。新版标签与旧版不兼容。
 
 **当前状态：数据准备、训练、检测程序已实现；尚无经验证的 Override 专用权重，不能宣称已经能可靠识别。** 通用 YOLO 预训练权重只用作训练起点。程序会拒绝把 COCO 模型当作 Override 检测模型。
 
@@ -33,14 +33,17 @@ python vex_yolo.py extract data/videos/gIXlJm1aV_o-3600-3720.mp4 --session beach
 
 | ID | 类别 | 标注范围 |
 |---|---|---|
-| 0 | robot | 机器人可见整体，含伸出机构；不含驾驶员 |
-| 1 | pin | 单个 Pin，包含可见两端；不按颜色拆类 |
-| 2 | cup | 单个 Cup，翻面仍标同类 |
+| 0–1 | robot_red / robot_blue | 整车，按阵营标注 |
+| 2–5 | toggle_red / toggle_blue / toggle_yellow / toggle_unknown | Toggle 活动杆按场内显示面颜色标注 |
+| 6 | goal | 九个目标共用此类别 |
+| 7–9 | pin_half_red / pin_half_blue / pin_half_yellow | 按颜色标单个半段，不标整根 Pin |
+| 10 | cup | 单个 Cup |
 
 只标可辨认的实例，严重遮挡无法区分时跳过；堆叠时分别框选可辨认实例。确认无目标的负样本必须有空 txt，缺失标签会被拒绝。截图里的旧赛季圆环、移动目标不属于这份数据集。
 
 ```text
-data/override/
+data/override-v2/
+  classes.json
   images/train/eventA__00001.jpg
   images/val/eventB__00001.jpg
   labels/train/eventA__00001.txt
@@ -49,18 +52,22 @@ data/override/
 
 标签每行 `class_id center_x center_y width height`，坐标归一化至 0–1。保留抽帧时的 `session__frame` 文件名，按不同赛事/拍摄场次分割训练与验证，避免相邻帧泄漏。不要把模型自动生成的框直接视作真值。
 
+将新版标签文件夹中的 `classes.json` 复制到训练数据根目录，清单必须与 `schema.py` 匹配。四台车是四个实例，用跟踪 ID 区分；四个 Toggle 和九个 Goal 是固定场地实例，不是各自独立的训练类别。
+
 ## 训练与检测
 
 ```powershell
 python vex_yolo.py check
 python vex_yolo.py train --device cpu --epochs 100
-python vex_yolo.py predict --source match.mp4 --weights runs/train/override/weights/best.pt
+python vex_yolo.py predict --source match.mp4 --weights runs/train/override/weights/best.pt --track
 python vex_yolo.py predict --source 0 --show --output runs/camera
 ```
 
 支持图片路径、视频路径、摄像头编号。每次选择新输出目录，标注媒体位于 `annotated/`，逐帧坐标保存在 `detections.jsonl`。frame 是输出顺序编号；坐标为原图像素 xyxy，不代表场地坐标。默认阈值 0.35，可用 `--conf` 调整。
 
-训练结果包含验证指标；上线前还应在独立赛事视频上检查每类 precision、recall、mAP50–95、误检和漏检，以及目标设备 FPS。当前未测量这些指标。检测框不等于已经得分，也不判断阵营或队号。
+训练结果包含验证指标；上线前还应在独立赛事视频上检查每类 precision、recall、mAP50–95、误检和漏检，以及目标设备 FPS。当前未测量这些指标。新版支持阵营类别，未实现队号识别；跟踪 ID 可能在遮挡或切镜后变化，不是永久身份。JSONL 输出含 track_id。
+
+黄色 Pin Half 计分页依据用户提供的 Override 2.1 SC2–SC7，只处理标准 V5RC 对抗赛，输入为人工复核；只计算黄色半段小计，不代表完整比赛分数。自动从视频识别落位、接触、套叠、半段可见性和 Goal/Toggle 区域位置映射尚未实现。
 
 ## 检查
 
