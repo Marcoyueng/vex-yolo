@@ -2,6 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 from vex_yolo import validate_dataset
+from schema import ensure_schema
 
 
 class DatasetTests(unittest.TestCase):
@@ -9,6 +10,7 @@ class DatasetTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory(dir=Path(__file__).resolve().parent)
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+        ensure_schema(self.root, create=True)
         for split, session in [('train', 'eventA'), ('val', 'eventB')]:
             for kind in ('images', 'labels'):
                 (self.root / kind / split).mkdir(parents=True)
