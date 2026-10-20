@@ -50,19 +50,21 @@ class Specialist:
     def detect(self,image,seconds,robots):
         """Input is 2048x1152 review coordinates; output uses normalized boxes."""
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
-        mask=field_mask(image.shape,self.field_polygon)
+        # A tall stack projects above/outside the floor polygon in perspective.
+        # Floor geometry must not clip its upper halves.
         # Search only above calibrated Goal mouths. Contact with a robot does
         # not by itself negate Placed; uncertainty is handled by goal_observer.
-        stack_mask=np.zeros(mask.shape,np.uint8)
+        stack_mask=np.zeros(image.shape[:2],np.uint8)
         stack_windows=[]
         for goal in self.goals.values():
             gx=(goal[0]+goal[2])/2;gw=goal[2]-goal[0];gh=goal[3]-goal[1]
-            left,right=max(0,round(gx-gw*1.8)),min(2047,round(gx+gw*1.8))
-            top,bottom=max(0,round(goal[1]-gh*6)),min(1151,round(goal[1]+gh*.3))
+            left,right=max(0,round(gx-gw*4)),min(2047,round(gx+gw*4))
+            top,bottom=max(0,round(goal[1]-gh*9)),min(1151,round(goal[1]+gh*.3))
             cv2.rectangle(stack_mask,(left,top),(right,bottom),255,-1)
             for y in range(top+40,max(top+41,bottom),80):
-                stack_windows.append((round(gx),y,144))
-        mask &= stack_mask
+                for dx in (-1.6,0,1.6):
+                    stack_windows.append((round(gx+dx*gw),y,144))
+        mask=stack_mask
         colored=(cv2.inRange(hsv,(0,120,75),(10,255,255))|
                  cv2.inRange(hsv,(170,120,75),(179,255,255))|
                  cv2.inRange(hsv,(86,130,90),(115,255,255))|
@@ -95,6 +97,7 @@ class Specialist:
                 global_box=[(ox+a)/2048,(oy+b)/1152,(ox+c)/2048,(oy+d)/1152]
                 cx,cy=round((ox+a+ox+c)/2),round((oy+b+oy+d)/2)
                 if min(c-a,d-b)<5:continue
+                if cls in (7,8,9) and d-b<.35*(c-a):continue # thin Goal rims are not protruding halves
                 if cls==6:
                     # A learned detection must overlap a separately reviewed Goal ROI.
                     if not any(overlap(global_box,[g[0]/2048,g[1]/1152,g[2]/2048,g[3]/1152])>.2 for g in self.goals.values()):continue
