@@ -56,6 +56,8 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
         card((x,y,x+160,y+119))
         goal=f'G{index}';row=observation['goals'][goal];points=score['goals'][goal]
         values=points['counts'] if review else row['counts']
+        if not review and row.get('partial') and not any(values.values()):
+            values=dict.fromkeys(('red','blue','yellow'),None)
         text(x+12,y+9,goal+(' · 中央' if index==0 else ''),18,bold=True)
         status=row['status'];valid=status=='estimate'
         if review:
@@ -67,7 +69,7 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
         text(x+12,y+38,status_text,12,MUTED)
         for j,(key,color) in enumerate((('red',RED),('blue',BLUE),('yellow',YELLOW))):
             dot(x+12+j*48,y+63,color);text(x+25+j*48,y+54,'?' if values[key] is None else values[key],16,color,True)
-        show=lambda value:'?' if value is None else str(value)+('+' if not review and row.get('partial') else '')
+        show=lambda value:'?' if value is None else str(value)+('+?' if not review and row.get('partial') else '')
         text(x+12,y+88,('≈ ' if not review else '')+show(points['red'])+' / '+show(points['blue']),17,GREEN if valid else MUTED,True)
     text(1070,779,'TEAMS  /  身份持续显示',14,MUTED)
     state_map={s['team']:s for s in states}
