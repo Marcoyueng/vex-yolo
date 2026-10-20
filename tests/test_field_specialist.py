@@ -29,6 +29,28 @@ class FieldSpecialistTests(unittest.TestCase):
         self.assertEqual(len(rows),2)
         self.assertEqual({row['class_id'] for row in rows},{7,10})
 
+    def test_tall_stack_above_floor_polygon_is_still_searched(self):
+        class Tensor:
+            def __init__(self,value):self.value=value
+            def cpu(self):return self
+            def tolist(self):return self.value
+        def predict(crops,**kwargs):
+            results=[]
+            for crop in crops:
+                # Identify the synthetic yellow half in whichever crop covers it.
+                mask=cv2.inRange(crop,(0,200,200),(20,255,255))
+                points=cv2.findNonZero(mask)
+                boxes=[] if points is None else [list(cv2.boundingRect(points))]
+                boxes=[[x,y,x+w,y+h] for x,y,w,h in boxes]
+                results.append(SimpleNamespace(boxes=SimpleNamespace(xyxy=Tensor(boxes),cls=Tensor([9]*len(boxes)),conf=Tensor([.95]*len(boxes)))))
+            return results
+        model=Specialist.__new__(Specialist);model.model=SimpleNamespace(predict=predict)
+        model.goals={'G0':[800,600,880,650]}
+        model.field_polygon=[[500,550],[1100,550],[1300,1000],[300,1000]]
+        image=np.zeros((1152,2048,3),np.uint8);image[240:270,980:1005]=(0,255,255)
+        result=model.detect(image,0,[])
+        self.assertTrue(any(o['class_id']==9 and o['xyxy'][1]<.3 for o in result))
+
     def test_field_mask_excludes_scoreboard_and_spectators(self):
         mask=field_mask((100,200,3),[[20,20],[180,20],[180,80],[20,80]])
         self.assertEqual(mask[50,100],255)
