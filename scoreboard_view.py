@@ -49,7 +49,12 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
         values=points['counts'] if review else row['counts']
         text(x+12,y+9,goal+(' · 中央' if index==0 else ''),18,bold=True)
         status=row['status'];valid=status=='estimate'
-        text(x+12,y+38,'候选半段' if valid else {'occluded':'遮挡 · 待确认','unobserved':'未识别 · 待确认','ambiguous':'归属不明'}.get(status,'待确认'),12,MUTED)
+        if review:
+            valid=points['red'] is not None and points['blue'] is not None
+            status_text='人工复核' if valid else '部分复核 · 待确认'
+        else:
+            status_text='候选半段' if valid else {'occluded':'遮挡 · 待确认','unobserved':'未识别 · 待确认','ambiguous':'归属不明'}.get(status,'待确认')
+        text(x+12,y+38,status_text,12,MUTED)
         for j,(key,color) in enumerate((('red',RED),('blue',BLUE),('yellow',YELLOW))):
             dot(x+12+j*48,y+63,color);text(x+25+j*48,y+54,'?' if values[key] is None else values[key],16,color,True)
         show=lambda value:'?' if value is None else str(value)
