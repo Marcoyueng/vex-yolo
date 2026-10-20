@@ -8,7 +8,7 @@ RED='#ff6578';BLUE='#48b9ff';YELLOW='#ffda62';GREEN='#57dbb0'
 SIZE=(1600,960)
 
 
-def player_picture(panel,video,width,height,fast=False):
+def player_picture(panel,video,width,height,fast=False,history=(),seconds=0):
     """Fit video and sidebar independently so a short timeline cannot shrink both."""
     image=Image.new('RGB',(width,height),BG)
     resample=Image.Resampling.BILINEAR if fast else Image.Resampling.LANCZOS
@@ -23,9 +23,25 @@ def player_picture(panel,video,width,height,fast=False):
     image.paste(preview,(vx,vy))
     remaining=height-(vy+preview.height)-20
     if remaining>=55:
-        chart=panel.crop((22,710,1052,936));chart.thumbnail((vw,remaining),resample)
-        image.paste(chart,(18+(vw-chart.width)//2,vy+preview.height+10))
+        draw_player_chart(image,(18,vy+preview.height+10,18+vw,height-10),history,seconds)
     return image,dict(video=(vx,vy,preview.width,preview.height),sidebar=(sx,head,sw,sh))
+
+
+def draw_player_chart(image,box,history,seconds):
+    d=ImageDraw.Draw(image);x,y,right,bottom=box
+    d.rounded_rectangle(box,radius=8,fill=PANEL,outline=EDGE,width=1)
+    d.text((x+10,y+4),'分数走势 · 红 / 蓝 AI 估分',font=font(12),fill=MUTED)
+    left=x+38;top=y+25;right-=12;bottom-=18
+    data=[p for p in history if p['seconds']<=seconds]
+    maximum=max(20,max((max(p['red'],p['blue']) for p in data),default=0)*1.15)
+    for fraction in (0,.5,1):
+        cy=bottom-fraction*(bottom-top);d.line((left,cy,right,cy),fill=EDGE)
+        d.text((x+5,cy-5),str(round(maximum*fraction)),font=font(9),fill=MUTED)
+    for key,color in (('red',RED),('blue',BLUE)):
+        points=[(left+p['seconds']/max(10,seconds)*(right-left),bottom-p[key]/maximum*(bottom-top)) for p in data]
+        if len(points)>1:d.line(points,fill=color,width=2)
+    d.text((left,bottom+4),'00:00',font=font(9),fill=MUTED)
+    d.text((right-35,bottom+4),f'{int(seconds//60):02d}:{int(seconds%60):02d}',font=font(9),fill=MUTED)
 
 
 def paste_video(image,video):
