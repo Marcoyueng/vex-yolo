@@ -1,10 +1,28 @@
 import unittest
 import cv2
 import numpy as np
+from types import SimpleNamespace
 from field_specialist import Specialist,suppress,field_mask
 
 
 class FieldSpecialistTests(unittest.TestCase):
+    def test_goal_base_is_retained_below_the_upward_pin_search_mask(self):
+        class Tensor:
+            def __init__(self,value):self.value=value
+            def cpu(self):return self
+            def tolist(self):return self.value
+        def result(boxes,classes,scores):
+            return SimpleNamespace(boxes=SimpleNamespace(xyxy=Tensor(boxes),cls=Tensor(classes),conf=Tensor(scores)))
+        def predict(crops,**kwargs):
+            return [result([[32,22,112,122]],[6],[.95])]+[result([],[],[]) for _ in crops[1:]]
+        model=Specialist.__new__(Specialist)
+        model.model=SimpleNamespace(predict=predict)
+        model.goals={'G0':[800,600,880,700]} # synthetic test geometry, unrelated to source media
+        model.field_polygon=[[0,0],[2047,0],[2047,1151],[0,1151]]
+        objects=model.detect(np.zeros((1152,2048,3),np.uint8),0,[])
+        self.assertEqual(len(objects),1)
+        self.assertEqual(objects[0]['class_id'],6)
+
     def test_nested_cup_pin_and_goals_are_not_merged_between_classes(self):
         obj=dict(xyxy=[.2,.2,.4,.4],confidence=.9,class_id=7)
         rows=suppress([obj,dict(obj,confidence=.6),dict(obj,class_id=10)])
