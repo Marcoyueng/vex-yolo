@@ -70,10 +70,10 @@ def render():
                         if cls==6:continue # separate calibrated Goal outlines avoid duplicate boxes
                         pixel=[round(v*d) for v,d in zip(obj['xyxy'],[width,height,width,height])]
                         color=PALETTE[cls]
-                        if obj['observation']=='optical_flow_estimate':dashed(image,pixel,color)
+                        if obj['observation'] in ('optical_flow_estimate','photometric_estimate'):dashed(image,pixel,color)
                         else:cv2.rectangle(image,tuple(pixel[:2]),tuple(pixel[2:]),color,2)
                         label={7:'Pin-R',8:'Pin-B',9:'Pin-Y',10:'Cup'}[cls]
-                        if obj['observation']=='optical_flow_estimate':label+=' ~'
+                        if obj['observation'] in ('optical_flow_estimate','photometric_estimate'):label+=' ~'
                         caption(image,label,(pixel[0],pixel[1]-4),color,.45)
                     caption(image,'Goal ROI / Pin-Cup drafts; scoring unconfirmed',(24,height-62),(240,240,240),.62)
                     process.stdin.write(image.tobytes())
