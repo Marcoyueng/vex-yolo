@@ -124,6 +124,8 @@ python vex_yolo.py predict --source 0 --show --output runs/camera
 
 `evaluate_stack_refinement.py` 在未用于训练的完整帧上比较指定 Goal 的半段数量；复核输入还需每项的 `frame`、`goal_id`。`infer_goal_records.py --weights 本地模型路径` 重新处理原视频，保留已接受的机器人身份与 Toggle 记录，默认每秒重新检测一次，间隔使用有时限的光流估计。高堆叠的搜索区域允许越过地面投影边界，避免机位透视截掉顶部；只有与 Goal 堆叠连接的候选参与显示和估分。
 
+静止的光滑半段缺少足够特征角点时，仅在当前像素与前帧仍高度相似且有明暗结构时，使用 `photometric_estimate` 保留位置；这不延长采样超时，移走或遮挡后不能仅凭历史值继续保留。画面中的 `~` 同样表示此类估计。`refine_goal_flow.py` 可复用本地已完成推理中的检测采样帧，重新验证帧间传播，不改变模型或检测采样结果。
+
 ## 检查
 
 ```powershell
