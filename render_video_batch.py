@@ -33,7 +33,7 @@ def main():
                 item=next((x for x in association['videos'] if x['id']==video['id'] and x['status']=='complete'),None)
                 if item:break
                 time.sleep(1)
-            records=RecordIndex(item['records']);timeline=GoalMemoryTimeline(records,video['fps'])
+            records=RecordIndex(item['records']);timeline=GoalMemoryTimeline(records,video['fps'],start_frame=video.get('match_start_frame'))
             target=ROOT/'runs/elims-batch'/video['id'];output=target/f'miko-yolo-{video["id"]}.mp4'
             entry=dict(video,id=video['id'],source=video['source'],records=item['records'],output=str(output),status='rendering',
                        scoring_validity='unconfirmed',placed_halves_persistence=True)
