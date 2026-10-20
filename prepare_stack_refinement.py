@@ -8,6 +8,7 @@ import shutil
 from datetime import datetime
 from pathlib import Path
 import cv2
+import numpy as np
 from schema import CLASSES
 
 ROOT=Path(__file__).resolve().parent
@@ -36,7 +37,7 @@ def prepare(review_path,base_run):
             # Do not use unreviewed neighboring pixels as unlabeled negatives.
             crop=image[top:top+side,left:left+side].copy()
             region=sample['review_region']
-            mask=cv2.rectangle(__import__('numpy').zeros(crop.shape[:2],dtype='uint8'),
+            mask=cv2.rectangle(np.zeros(crop.shape[:2],dtype='uint8'),
                 (max(0,region[0]-left),max(0,region[1]-top)),
                 (min(side-1,region[2]-left),min(side-1,region[3]-top)),255,-1)
             crop[mask==0]=0
