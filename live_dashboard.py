@@ -253,7 +253,7 @@ class Dashboard(tk.Toplevel):
         row=dict(row,robots=[dict(o) for o in row.get('robots',[])])
         overrides={}
         for binding in sorted(self.session['bindings'],key=lambda b:b['frame']):
-            if binding['frame'] <= row['frame']:
+            if binding['frame'] <= row['frame'] <= binding.get('end_frame',float('inf')):
                 overrides[binding['track_id']]=binding
         # Only the newest reviewed track can own each team at a given time.
         newest={}
@@ -273,6 +273,20 @@ class Dashboard(tk.Toplevel):
         for obj in row['robots']:
             if obj.get('team') in applied and obj.get('identity_source') != 'manual_review':
                 obj.update(team=None,alliance=None)
+        # A roster is fixed for this match. Never turn a blue team red because
+        # of an appearance guess, or display the same team on two robots.
+        owners={}
+        for obj in sorted(row['robots'],key=lambda o:(o.get('identity_source')=='manual_review',o.get('confidence',0)),reverse=True):
+            team=obj.get('team')
+            if team in self.roster and team not in owners:
+                obj['alliance']=self.roster[team];owners[team]=obj
+            elif team is not None:obj.update(team=None,alliance=None,identity_source='identity_conflict')
+        slots={c:sum(self.roster[t]==c for t in owners) for c in ('red','blue')}
+        for obj in row['robots']:
+            if obj.get('team') is None and obj.get('alliance') in slots:
+                color=obj['alliance']
+                if slots[color]>=2:obj['alliance']=None
+                else:slots[color]+=1
         return row
 
     def show_frame(self, index, read_sequential=False):
@@ -317,6 +331,13 @@ class Dashboard(tk.Toplevel):
         if self.frame >= len(self.records.offsets)-1:self.seek(0)
         self.playing=True;self.play_started=time.monotonic();self.play_start_frame=self.frame;self.tick()
 
+    def set_playback_rate(self,rate):
+        rate=float(rate)
+        if rate not in (.25,.5,.75,1.,1.5,2.,4.):raise ValueError('不支持的播放速度')
+        self.playback_rate=rate
+        if self.playing:
+            self.play_start_frame=self.frame;self.play_started=time.monotonic()
+
     def advance_to(self,index):
         # Decode past late display frames, while consuming every identity record.
         # Dropping a display frame must not drop a binding or last-seen update.
@@ -330,7 +351,7 @@ class Dashboard(tk.Toplevel):
         self.timer=None
         if not self.playing:return
         last=len(self.records.offsets)-1
-        target=min(last,self.play_start_frame+int((time.monotonic()-self.play_started)*self.fps))
+        target=min(last,self.play_start_frame+int((time.monotonic()-self.play_started)*self.fps*getattr(self,'playback_rate',1.)))
         try:
             if target>self.frame:self.advance_to(target)
         except Exception as error:
