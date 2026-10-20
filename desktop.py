@@ -83,9 +83,18 @@ class Workbench(tk.Tk):
         self.build_jobs(jobs)
         self.build_scoring(scoring)
         self.build_event(event)
+        tracking = ttk.Frame(tabs, padding=16)
+        tabs.add(tracking, text='跟踪 / 九 Goal 计分')
+        ttk.Label(tracking, text='miko yolo · 全场身份与九 Goal 计分', font=('Microsoft YaHei UI', 17, 'bold')).pack(anchor='w', pady=12)
+        ttk.Label(tracking, text='四支队伍持续显示；短时遮挡用虚线预测；暂停后点击机器人框可纠正队号。\n九个 Goal 支持位置标定和 SC2–SC7 计分复核，未知项保留问号。\n当前试播已接入机器人 / Toggle 结果；Goal、Pin 半段自动计分仍需要对应标注训练。', wraplength=950).pack(anchor='w', pady=12)
+        ttk.Button(tracking, text='打开跟踪与计分窗口', command=self.open_dashboard).pack(anchor='w', pady=12)
         ttk.Label(self, textvariable=self.status, padding=12).pack(fill='x')
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.after(100, self.poll)
+
+    def open_dashboard(self):
+        from live_dashboard import Dashboard
+        Dashboard(self)
 
     def button(self, parent, text, command):
         b = ttk.Button(parent, text=text, command=command)
@@ -109,7 +118,7 @@ class Workbench(tk.Tk):
         ttk.Label(identity, text='此框队号').pack(side='left')
         self.team_combo = ttk.Combobox(identity, textvariable=self.annotation_team, width=14, state='readonly')
         self.team_combo.pack(side='left', padx=5)
-        ttk.Label(identity, text='队号牌文字（仅 team_plate）').pack(side='left')
+        ttk.Label(identity, text='队号牌文字（逐框填写）').pack(side='left')
         ttk.Entry(identity,textvariable=self.plate_text,width=14).pack(side='left',padx=5)
         self.button(identity,'转换旧v2标签',self.upgrade_labels)
         ttk.Label(parent, textvariable=self.label_dir).pack(anchor='w', pady=8)
@@ -168,6 +177,7 @@ class Workbench(tk.Tk):
 
     def load_image(self):
         try:
+            self.plate_text.set('')
             self.frame_match = None
             with connect(self.project_path.get()) as db:
                 row=db.execute('SELECT j.match_id FROM frames f JOIN jobs j ON j.id=f.job_id WHERE f.path=?',
@@ -265,6 +275,8 @@ class Workbench(tk.Tk):
                 self.redraw(); messagebox.showerror('队号输入错误',str(error)); return
             self.boxes.append((CLASSES.index(self.current_class.get()), x1, y1, x2, y2))
             self.identities.append(metadata)
+            if self.current_class.get()=='team_plate':
+                self.plate_text.set('')
             self.dirty = True
         self.redraw()
         self.update_status()
