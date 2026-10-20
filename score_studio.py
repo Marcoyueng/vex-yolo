@@ -10,6 +10,7 @@ from goal_overlay import goal_view
 from goal_observer import observe_goal_stacks
 from scoreboard_view import compose,paste_video,paint_time
 from goal_memory import GoalMemoryTimeline,gate_scoring
+from replay_timeline import ReplayTimeline
 
 
 class ScoreStudio(tk.Toplevel):
@@ -47,9 +48,19 @@ class ScoreStudio(tk.Toplevel):
         self.screen=tk.Canvas(self,bg='#080e19',highlightthickness=0);self.screen.pack(fill='both',expand=True)
         self.screen.bind('<Configure>',lambda _:self.update_view())
         self.screen.bind('<Button-1>',self.select_card)
-        self.slider=ttk.Scale(self,from_=0,to=1);self.slider.pack(fill='x',padx=16,pady=4)
-        self.slider.bind('<ButtonPress-1>',lambda _:self.backend.pause())
-        self.slider.bind('<ButtonRelease-1>',lambda _:self.backend.seek(round(self.slider.get())))
+        transport=ttk.Frame(self,padding=(10,2),style='Studio.TFrame');transport.pack(fill='x')
+        for label,delta in (('−5 秒',-5),('+5 秒',5)):
+            ttk.Button(transport,text=label,command=lambda d=delta:self.jump(d),style='Studio.TButton').pack(side='left',padx=3)
+        ttk.Label(transport,text='播放速度',style='Studio.TLabel').pack(side='left',padx=(14,4))
+        self.speed=tk.StringVar(value='1×')
+        speed=ttk.Combobox(transport,textvariable=self.speed,values=['0.25×','0.5×','0.75×','1×','1.5×','2×','4×'],width=7,state='readonly')
+        speed.pack(side='left');speed.bind('<<ComboboxSelected>>',lambda _:self.backend.set_playback_rate(float(self.speed.get().rstrip('×'))))
+        ttk.Button(transport,text='− 缩放',command=lambda:self.timeline.set_zoom(1/1.5),style='Studio.TButton').pack(side='right',padx=3)
+        ttk.Button(transport,text='+ 缩放',command=lambda:self.timeline.set_zoom(1.5),style='Studio.TButton').pack(side='right',padx=3)
+        self.timeline=ReplayTimeline(self,on_seek=self.backend.seek,on_pause=self.backend.pause);self.timeline.pack(fill='x',padx=10)
+        self.bind('<space>',self.key_play)
+        self.bind('<Left>',lambda e:self.key_step(e,-1));self.bind('<Right>',lambda e:self.key_step(e,1))
+        self.bind('<Shift-Left>',lambda e:self.key_jump(e,-5));self.bind('<Shift-Right>',lambda e:self.key_jump(e,5))
         self.note=tk.StringVar(value='打开本场比赛；仅显示 Goal 堆叠候选，地面物体不显示、不参与估分。')
         ttk.Label(self,textvariable=self.note,padding=6,style='Studio.TLabel').pack(fill='x')
         self.protocol('WM_DELETE_WINDOW',self.close)
@@ -110,9 +121,27 @@ class ScoreStudio(tk.Toplevel):
         self.scale=scale;self.offset=((width-size[0])//2,(height-size[1])//2)
         self.photo=ImageTk.PhotoImage(picture.resize(size,Image.Resampling.BILINEAR if b.playing else Image.Resampling.LANCZOS))
         self.screen.delete('all');self.screen.create_image(*self.offset,image=self.photo,anchor='nw')
-        self.slider.configure(to=len(b.records.offsets)-1);self.slider.set(b.frame)
+        self.timeline.configure_clip(b.session['source']['video']['path'],len(b.records.offsets),b.fps,self.history,start)
+        self.timeline.position(b.frame)
         self.note.set(f'视频 {b.current["seconds"]:.2f}s · 已隐藏 {observed["excluded_ground_or_unconnected"]} 个地面 / 未连接候选 · AI 估分尚未确认落位、可见性和有效占领')
         self.observed=observed
+
+    def jump(self,seconds):
+        b=self.backend
+        if b.records:b.seek(b.frame+round(seconds*b.fps))
+
+    def key_play(self,event):
+        if isinstance(event.widget,(tk.Entry,ttk.Entry,ttk.Combobox)):return
+        self.backend.toggle_play();return 'break'
+
+    def key_step(self,event,delta):
+        if isinstance(event.widget,(tk.Entry,ttk.Entry,ttk.Combobox)):return
+        if self.backend.records:self.backend.seek(self.backend.frame+delta)
+        return 'break'
+
+    def key_jump(self,event,delta):
+        if isinstance(event.widget,(tk.Entry,ttk.Entry,ttk.Combobox)):return
+        self.jump(delta);return 'break'
 
     def set_match_start(self):
         b=self.backend
@@ -177,20 +206,38 @@ class ScoreStudio(tk.Toplevel):
     def select_card(self,event):
         if not getattr(self,'scale',0):return
         x=(event.x-self.offset[0])/self.scale;y=(event.y-self.offset[1])/self.scale
+        b=self.backend
+        if b.current is not None and 24<=x<=1048 and 107<=y<=683:
+            h,w=b.image.shape[:2];factor=min(1024/w,576/h)
+            ox=24+(1024-w*factor)/2;oy=107+(576-h*factor)/2
+            nx=(x-ox)/(w*factor);ny=(y-oy)/(h*factor)
+            hits=[o for o in b.current['robots'] if o['xyxy'][0]<=nx<=o['xyxy'][2] and o['xyxy'][1]<=ny<=o['xyxy'][3]]
+            if hits:
+                b.pause();obj=min(hits,key=lambda o:(o['xyxy'][2]-o['xyxy'][0])*(o['xyxy'][3]-o['xyxy'][1]))
+                menu=tk.Menu(self,tearoff=False)
+                for team,color in b.roster.items():
+                    menu.add_command(label=f'设为 {team} · '+('红方' if color=='red' else '蓝方'),command=lambda t=team,tid=obj['track_id']:self.bind_robot(tid,t))
+                menu.tk_popup(event.x_root,event.y_root);return
         if 1070<=x<1574 and 373<=y<752:
             col=int((x-1070)//172);row=int((y-373)//130)
             if col<3 and row<3:
                 self.backend.goal.set(f'G{row*3+col}');self.backend.load_goal();self.show_review()
 
+    def bind_robot(self,track_id,team):
+        b=self.backend;b.pause()
+        b.session['bindings'].append(dict(frame=b.frame,track_id=track_id,team=team,source='user_video_click'))
+        b.save_session();b.seek(b.frame)
+
     def poll_review(self):
         if not self.winfo_exists():return
-        signature=json.dumps(self.backend.session['reviews'],sort_keys=True)
+        signature=json.dumps([self.backend.session['reviews'],self.backend.session['bindings']],sort_keys=True)
         if signature!=getattr(self,'review_signature',None):
             self.review_signature=signature;self.update_view()
         self.review_timer=self.after(200,self.poll_review)
 
     def close(self):
         if getattr(self,'review_timer',None) is not None:self.after_cancel(self.review_timer)
+        self.timeline.close()
         self.backend.close();self.destroy()
 
 
