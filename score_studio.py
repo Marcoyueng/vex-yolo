@@ -9,6 +9,7 @@ from live_dashboard import Dashboard,ROOT
 from goal_overlay import goal_view
 from goal_observer import observe_goal_stacks
 from scoreboard_view import compose
+from goal_memory import GoalMemoryTimeline
 
 
 class ScoreStudio(tk.Toplevel):
@@ -31,6 +32,12 @@ class ScoreStudio(tk.Toplevel):
                              ('将候选半段送入复核',self.review_candidates)):
             ttk.Button(bar,text=title,command=action,style='Studio.TButton').pack(side='left',padx=3)
         ttk.Label(bar,text='≈ 为估分，? 为待确认',style='Studio.TLabel').pack(side='right',padx=8)
+        options=ttk.Frame(self,padding=(10,0,10,5),style='Studio.TFrame');options.pack(fill='x')
+        self.keep_placed=tk.BooleanVar(value=True)
+        ttk.Checkbutton(options,text='已放置半段保持',variable=self.keep_placed,command=self.change_persistence).pack(side='left')
+        ttk.Label(options,text='连续两次独立检测后保留数量；黄色按当前占领重新计分',style='Studio.TLabel').pack(side='left',padx=12)
+        ttk.Button(options,text='从此帧清除半段记录',command=self.reset_persistence,style='Studio.TButton').pack(side='left')
+        ttk.Button(options,text='本轮训练视频',command=self.open_batch,style='Studio.TButton').pack(side='left',padx=8)
         self.screen=tk.Canvas(self,bg='#080e19',highlightthickness=0);self.screen.pack(fill='both',expand=True)
         self.screen.bind('<Configure>',lambda _:self.update_view())
         self.screen.bind('<Button-1>',self.select_card)
@@ -44,16 +51,27 @@ class ScoreStudio(tk.Toplevel):
         self.review_timer=self.after(150,self.poll_review)
 
     def load_history(self):
-        key=(str(self.backend.records.path),json.dumps(self.backend.session['goal_rois'],sort_keys=True))
+        b=self.backend
+        enabled=b.session.get('keep_placed_halves',True)
+        self.keep_placed.set(enabled)
+        key=(str(b.records.path),json.dumps(b.session['goal_rois'],sort_keys=True),enabled,
+             json.dumps(b.session['reviews'],sort_keys=True),tuple(b.session.get('stack_memory_resets',[])))
         if key==self.history_key:return
         self.history_key=key;self.history=[]
-        for i in range(0,len(self.backend.records.offsets),max(1,round(self.backend.fps))):
-            row=self.backend.records.get(i)
-            observed=observe_goal_stacks(row,self.backend.session['goal_rois'])
-            self.history.append(dict(seconds=row['seconds'],red=observed['score']['red'],blue=observed['score']['blue']))
+        self.stack_timeline=None
+        if enabled:
+            self.stack_timeline=GoalMemoryTimeline(b.records,b.fps,b.session['goal_rois'],b.session['reviews'],b.session.get('stack_memory_resets',[]))
+            self.history=self.stack_timeline.history
+        else:
+            for i in range(0,len(b.records.offsets),max(1,round(b.fps))):
+                row=b.records.get(i);observed=observe_goal_stacks(row,b.session['goal_rois'])
+                self.history.append(dict(seconds=row['seconds'],red=observed['score']['red'],blue=observed['score']['blue']))
         # Toggle calibration is local data, never embedded in the UI source.
         pointer=ROOT/'runs/active_toggle_pilot.json'
-        if pointer.exists():
+        first=b.records.get(0)
+        if first.get('toggle_rois'):
+            self.toggle_rois=first['toggle_rois']
+        elif pointer.exists():
             target=json.loads(pointer.read_text(encoding='utf-8'))['directory']
             from pathlib import Path
             path=Path(target)/'toggle-rois.json'
@@ -67,7 +85,9 @@ class ScoreStudio(tk.Toplevel):
         self.last_paint=now
         if b.state()!='withdrawn':self.original_draw()
         self.load_history()
-        overlay,observed=goal_view(b.image,b.current,self.toggle_rois,b.session['goal_rois'])
+        observed=observe_goal_stacks(b.current,b.session['goal_rois'])
+        if self.stack_timeline is not None:observed=self.stack_timeline.view(b.frame,observed)
+        overlay,observed=goal_view(b.image,b.current,self.toggle_rois,b.session['goal_rois'],observed)
         review=next((r for r in b.session['reviews'] if r['frame']==b.frame),None)
         picture=compose(Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)),observed,b.roster,b.states,b.current.get('toggles',{}),self.history,review)
         width,height=max(1,self.screen.winfo_width()),max(1,self.screen.winfo_height())
@@ -78,6 +98,41 @@ class ScoreStudio(tk.Toplevel):
         self.slider.configure(to=len(b.records.offsets)-1);self.slider.set(b.frame)
         self.note.set(f'视频 {b.current["seconds"]:.2f}s · 已隐藏 {observed["excluded_ground_or_unconnected"]} 个地面 / 未连接候选 · AI 估分尚未确认落位、可见性和有效占领')
         self.observed=observed
+
+    def change_persistence(self):
+        self.backend.pause()
+        self.backend.session['keep_placed_halves']=self.keep_placed.get()
+        if self.backend.path:self.backend.save_session()
+        self.history_key=None;self.update_view()
+
+    def reset_persistence(self):
+        b=self.backend
+        if b.current is None:return
+        b.pause();b.session.setdefault('stack_memory_resets',[]).append(b.frame)
+        b.save_session();self.history_key=None;self.update_view()
+
+    def open_batch(self):
+        from tkinter import messagebox
+        pointer=ROOT/'runs/latest_elims_results.json'
+        if not pointer.exists():
+            messagebox.showinfo('本轮训练视频','本轮结果尚未生成。',parent=self);return
+        state=json.loads(pointer.read_text(encoding='utf-8'))
+        dialog=tk.Toplevel(self);dialog.title('本轮训练视频');dialog.geometry('900x320')
+        tree=ttk.Treeview(dialog,columns=('match','red','blue','status'),show='headings')
+        for key,title in [('match','场次'),('red','红方'),('blue','蓝方'),('status','结果状态')]:
+            tree.heading(key,text=title);tree.column(key,width=210)
+        tree.pack(fill='both',expand=True,padx=10,pady=10)
+        videos=state.get('videos',[])
+        for i,video in enumerate(videos):tree.insert('', 'end',iid=str(i),values=(video['match'],' / '.join(video['red']),' / '.join(video['blue']),'可打开' if video['status']=='complete' else '处理中'))
+        def load():
+            selection=tree.selection()
+            if not selection:return
+            video=videos[int(selection[0])]
+            if video['status']!='complete':return
+            try:self.backend.load(video['source'],video['records']);dialog.destroy()
+            except Exception as error:messagebox.showerror('打开失败',str(error),parent=dialog)
+        ttk.Button(dialog,text='打开选中场次',command=load).pack(pady=5)
+        tree.bind('<Double-1>',lambda _:load())
 
     def show_review(self):
         self.backend.pause();self.backend.deiconify();self.original_draw();self.backend.lift()
