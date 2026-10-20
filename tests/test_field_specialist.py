@@ -1,6 +1,7 @@
 import unittest
 import cv2
 import numpy as np
+from unittest.mock import patch
 from types import SimpleNamespace
 from field_specialist import Specialist,suppress,field_mask
 
@@ -73,6 +74,20 @@ class FieldSpecialistTests(unittest.TestCase):
         self.assertEqual(result[0]['scoring_validity'],'unconfirmed')
         self.assertAlmostEqual(result[0]['xyxy'][0],904/2048,delta=.002)
         self.assertEqual(model.propagate(moved,1.2),[])
+
+    def test_stationary_half_without_corners_needs_matching_current_pixels(self):
+        model=Specialist.__new__(Specialist)
+        image=np.zeros((1152,2048,3),np.uint8)
+        image[460:540,920:980]=(0,255,255)
+        model.previous=cv2.cvtColor(cv2.resize(image,(1024,576)),cv2.COLOR_BGR2GRAY)
+        model.objects=[dict(class_id=9,xyxy=[900/2048,450/1152,1000/2048,550/1152],confidence=.9,scoring_validity='unconfirmed')]
+        model.sample_seconds=0
+        with patch('field_specialist.cv2.goodFeaturesToTrack',return_value=None):
+            result=model.propagate(image,.1)
+            self.assertEqual(len(result),1)
+            self.assertEqual(result[0]['observation'],'photometric_estimate')
+            self.assertEqual(result[0]['scoring_validity'],'unconfirmed')
+            self.assertEqual(model.propagate(np.zeros_like(image),.2),[])
 
 
 if __name__=='__main__':unittest.main()
