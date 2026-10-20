@@ -36,9 +36,13 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
     seconds=observation['seconds'];text(25,70,f'比赛画面   /   视频时间 {int(seconds//60):02d}:{seconds%60:04.1f}',16,MUTED)
     card((22,103,1050,690))
     if video is not None:paste_video(image,video)
+    timing=observation.get('match_timing',{}).get('state','active')
+    if timing!='active':review=None
     score=review['result'] if review is not None else observation['score']
     label='人工复核快照' if review else 'AI 稳定记录估分' if observation.get('persistence',{}).get('enabled') else 'AI 可见候选估分'
+    if timing!='active':label='开赛点未设置 · 暂不计分' if timing=='unset' else '开赛前 · 不计分'
     unknown=not score['complete'];prefix='' if review else '≈ '
+    if timing!='active':prefix=''
     for x,color,key,title in ((1070,RED,'red','红方 RED'),(1330,BLUE,'blue','蓝方 BLUE')):
         card((x,103,x+246,239),'#241725' if key=='red' else '#102638')
         dot(x+16,121,color);text(x+32,114,title,17,color,True)
@@ -64,7 +68,7 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
             valid=points['red'] is not None and points['blue'] is not None
             status_text='人工复核' if valid else '部分复核 · 待确认'
         else:
-            status_text={'stable':'稳定记录','remembered':'遮挡保持 · 已记录','pending':'等待连续检测'}.get(status,'候选半段' if valid else {'occluded':'遮挡 · 待确认','unobserved':'未识别 · 待确认','ambiguous':'归属不明'}.get(status,'待确认'))
+            status_text={'prestart':'检测预览 · 不计分','stable':'稳定记录','remembered':'遮挡保持 · 已记录','pending':'等待连续检测'}.get(status,'候选半段' if valid else {'occluded':'遮挡 · 待确认','unobserved':'未识别 · 待确认','ambiguous':'归属不明'}.get(status,'待确认'))
             if row.get('partial') and any(values.values()) and status not in ('remembered','pending'):status_text='已见半段 · 其余待确认'
         text(x+12,y+38,status_text,12,MUTED)
         for j,(key,color) in enumerate((('red',RED),('blue',BLUE),('yellow',YELLOW))):
