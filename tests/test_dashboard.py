@@ -2,11 +2,20 @@ import json
 from pathlib import Path
 import tempfile
 from types import SimpleNamespace
+from unittest.mock import patch
 import unittest
 from live_dashboard import Dashboard, RecordIndex
 
 
 class DashboardTests(unittest.TestCase):
+    def test_prefilled_candidates_cannot_be_saved_without_review(self):
+        panel=SimpleNamespace(current={'frame':0},pending_candidate_review=True,
+                              valid=SimpleNamespace(get=lambda:False),session={'reviews':[]})
+        with patch('live_dashboard.messagebox.showerror') as error:
+            Dashboard.save_review(panel)
+        error.assert_called_once()
+        self.assertEqual(panel.session['reviews'],[])
+
     def test_index_rejects_missing_identity_contract_and_discontinuous_frames(self):
         for rows in ([dict(frame=0,seconds=0,detections=[])],
                      [dict(frame=1,seconds=0,robots=[])]):
