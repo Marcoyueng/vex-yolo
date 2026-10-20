@@ -31,7 +31,8 @@ def evaluate(weights,review_path,records_path,output):
             frame=selected[0]['frame'];row=records.get(frame)
             image=cv2.imread(source)
             detected=specialist.detect(image,row['seconds'],row['robots'])
-            candidate=dict(row,field_objects=detected)
+            goal_rois={g:[b[0]/2048,b[1]/1152,b[2]/2048,b[3]/1152] for g,b in specialist.goals.items()}
+            candidate=dict(row,field_objects=detected,goal_rois=goal_rois)
             observation=observe_goal_stacks(candidate)
             comparisons=[]
             for sample in selected:
