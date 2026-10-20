@@ -8,6 +8,31 @@ from live_dashboard import Dashboard, RecordIndex
 
 
 class DashboardTests(unittest.TestCase):
+    def test_speed_change_reanchors_without_a_video_time_jump(self):
+        panel=SimpleNamespace(frame=210,playing=True)
+        with patch('live_dashboard.time.monotonic',return_value=12.):Dashboard.set_playback_rate(panel,.5)
+        self.assertEqual((panel.play_start_frame,panel.play_started,panel.playback_rate),(210,12.,.5))
+        shown=[]
+        panel.timer=None;panel.fps=30;panel.records=SimpleNamespace(offsets=range(900));panel.display_fps=15
+        panel.advance_to=lambda i:shown.append(i);panel.after=lambda *args:None;panel.tick=lambda:None
+        with patch('live_dashboard.time.monotonic',return_value=14.):Dashboard.tick(panel)
+        self.assertEqual(shown,[240])
+        with patch('live_dashboard.time.monotonic',return_value=14.):Dashboard.set_playback_rate(panel,2.)
+        with patch('live_dashboard.time.monotonic',return_value=16.):Dashboard.tick(panel)
+        self.assertEqual(shown[-1],330)
+
+    def test_roster_and_manual_binding_prevent_duplicate_or_wrong_alliance(self):
+        panel=SimpleNamespace(roster={'R1':'red','R2':'red','B1':'blue','B2':'blue'},session=dict(bindings=[
+            dict(frame=10,end_frame=20,track_id=7,team='B1')]))
+        robots=[dict(track_id=7,team='R1',alliance='red',confidence=.8),dict(track_id=8,team='B1',alliance='blue',confidence=.9),
+                dict(track_id=9,team='R2',alliance='blue',confidence=.9)]
+        result=Dashboard.corrected(panel,dict(frame=15,robots=robots))
+        self.assertEqual((result['robots'][0]['team'],result['robots'][0]['alliance']),('B1','blue'))
+        self.assertIsNone(result['robots'][1]['team'])
+        self.assertEqual(result['robots'][2]['alliance'],'red')
+        after=Dashboard.corrected(panel,dict(frame=21,robots=robots))
+        self.assertEqual(after['robots'][0]['team'],'R1')
+
     def test_playback_follows_wall_clock_when_paint_is_late(self):
         shown=[];scheduled=[]
         panel=SimpleNamespace(timer=None,playing=True,frame=100,play_start_frame=100,play_started=10.,fps=30,
