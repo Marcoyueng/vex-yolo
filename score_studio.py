@@ -168,7 +168,11 @@ class ScoreStudio(tk.Toplevel):
 
 
 if __name__=='__main__':
+    import argparse
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--batch',action='store_true',help='Open the local batch result selector')
+    args=parser.parse_args()
     root=tk.Tk();root.withdraw();studio=ScoreStudio(root)
     studio.protocol('WM_DELETE_WINDOW',lambda:(studio.close(),root.destroy()))
-    studio.after(100,studio.backend.open_pilot)
+    studio.after(100,studio.open_batch if args.batch else studio.backend.open_pilot)
     root.mainloop()
