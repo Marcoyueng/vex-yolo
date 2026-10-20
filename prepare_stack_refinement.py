@@ -23,6 +23,23 @@ def prepare(review_path,base_run):
     manifest.update(parent_run=str(base),stack_review=str(Path(review_path).resolve()),
                     limitations='Assistant-reviewed partial crops; same-video validation, not independent match accuracy.')
     manifest['stack_samples']=[]
+    if review.get('focus_only'):
+        for kind,suffix in [('images','*.jpg'),('labels','*.txt')]:
+            for split in ('train','val'):
+                for file in (target/'dataset'/kind/split).glob(suffix):file.unlink()
+        manifest['samples']=[]
+    manifest['goals'].update(review.get('goal_calibration',{}))
+    removed=[]
+    for sample in manifest.get('samples',[]):
+        for replacement in review.get('replace_regions',[]):
+            if sample['frame']!=replacement['frame']:continue
+            a,b,c,d=sample['crop_xyxy'];x,y,x2,y2=replacement['xyxy']
+            if min(c,x2)>max(a,x) and min(d,y2)>max(b,y):
+                for kind,suffix in [('images','.jpg'),('labels','.txt')]:
+                    file=target/'dataset'/kind/sample['split']/(sample['name']+suffix)
+                    if file.exists():file.unlink()
+                removed.append(sample['name']);break
+    manifest['replaced_incomplete_samples']=removed
     for sample in review['samples']:
         image=cv2.imread(sample['image'])
         if image is None:raise ValueError('Reviewed image unavailable')
