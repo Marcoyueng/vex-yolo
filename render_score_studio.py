@@ -12,7 +12,7 @@ from live_dashboard import RecordIndex
 from match_state import TeamMemory
 from goal_observer import observe_goal_stacks
 from goal_overlay import goal_view
-from scoreboard_view import compose,SIZE
+from scoreboard_view import compose,SIZE,paste_video,paint_time
 
 ROOT=Path(__file__).resolve().parent
 
@@ -36,6 +36,7 @@ def main():
              '-c:v','libx264','-threads','4','-preset','veryfast','-crf','20','-pix_fmt','yuv420p',
              '-c:a','copy','-movflags','+faststart',str(output)]
     memory=TeamMemory(records.roster)
+    panel=None;panel_key=None;last_panel=-1e9
     try:
         with (target/'ffmpeg.log').open('w') as errors,result_path.open('x',encoding='utf-8') as log:
             process=subprocess.Popen(command,stdin=subprocess.PIPE,stderr=errors,creationflags=getattr(subprocess,'CREATE_NO_WINDOW',0))
@@ -45,7 +46,14 @@ def main():
                     if not ok:raise ValueError('Video ended before detection records')
                     row=records.get(index);overlay,observation=goal_view(frame,row,toggle_rois)
                     states=memory.update(row['seconds'],row['robots'])
-                    picture=compose(Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)),observation,records.roster,states,row['toggles'],history)
+                    key=json.dumps([observation['score'],[(g,v['counts'],v['status']) for g,v in observation['goals'].items()],
+                                    row['toggles'],[(s['team'],s['status']) for s in states]],sort_keys=True)
+                    if panel is None or key!=panel_key or row['seconds']-last_panel>=.2:
+                        panel=compose(None,observation,records.roster,states,row['toggles'],history)
+                        panel_key=key;last_panel=row['seconds']
+                    picture=panel.copy()
+                    paste_video(picture,Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)))
+                    paint_time(picture,row['seconds'])
                     process.stdin.write(picture.tobytes())
                     filtered=dict(row,field_objects=[o for o in row['field_objects'] if o.get('class_id')==6]+observation['objects'],
                                   goal_estimate=observation,scoring_validity='unconfirmed')
