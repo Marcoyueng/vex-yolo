@@ -8,6 +8,14 @@ from live_dashboard import Dashboard, RecordIndex
 
 
 class DashboardTests(unittest.TestCase):
+    def test_explicit_roster_keeps_unreadable_robot_team_unset(self):
+        with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
+            path=Path(folder)/'input.jsonl'
+            path.write_text(json.dumps(dict(frame=0,seconds=0,robots=[dict(team=None,alliance=None)],roster={'A':'red','B':'blue'}))+'\n')
+            records=RecordIndex(path)
+            self.assertEqual(records.roster,{'A':'red','B':'blue'})
+            self.assertIsNone(records.get(0)['robots'][0]['team']);records.close()
+
     def test_prefilled_candidates_cannot_be_saved_without_review(self):
         panel=SimpleNamespace(current={'frame':0},pending_candidate_review=True,
                               valid=SimpleNamespace(get=lambda:False),session={'reviews':[]})
