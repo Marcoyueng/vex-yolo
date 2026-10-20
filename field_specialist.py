@@ -31,7 +31,7 @@ def field_mask(shape,polygon):
 
 
 class Specialist:
-    def __init__(self,weights,max_estimate_seconds=1.1,calibration=None):
+    def __init__(self,weights,max_estimate_seconds=1.1,calibration=None,search_columns=(-1.6,0,1.6)):
         import os
         import json
         from pathlib import Path
@@ -46,6 +46,7 @@ class Specialist:
         self.objects=[]
         self.sample_seconds=None
         self.max_estimate_seconds=max_estimate_seconds
+        self.search_columns=tuple(search_columns)
 
     def detect(self,image,seconds,robots):
         """Input is 2048x1152 review coordinates; output uses normalized boxes."""
@@ -62,7 +63,7 @@ class Specialist:
             top,bottom=max(0,round(goal[1]-gh*9)),min(1151,round(goal[1]+gh*.3))
             cv2.rectangle(stack_mask,(left,top),(right,bottom),255,-1)
             for y in range(top+40,max(top+41,bottom),80):
-                for dx in (-1.6,0,1.6):
+                for dx in getattr(self,'search_columns',(-1.6,0,1.6)):
                     stack_windows.append((round(gx+dx*gw),y,144))
         mask=stack_mask
         colored=(cv2.inRange(hsv,(0,120,75),(10,255,255))|
@@ -104,6 +105,8 @@ class Specialist:
                 elif not mask[max(0,min(1151,cy)),max(0,min(2047,cx))]:continue
                 objects.append(dict(class_id=cls,**{'class':NAMES[cls]},xyxy=global_box,confidence=confidence,
                                     observation='draft_model_detection',sample_seconds=seconds,scoring_validity='unconfirmed'))
+        from goal_color import corroborate_yellow
+        objects.extend(corroborate_yellow(image,self.goals,objects,seconds))
         self.objects=suppress(objects)
         self.previous=cv2.cvtColor(cv2.resize(image,(1024,576)),cv2.COLOR_BGR2GRAY)
         self.sample_seconds=seconds
