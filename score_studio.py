@@ -8,7 +8,7 @@ from PIL import Image,ImageTk
 from live_dashboard import Dashboard,ROOT
 from goal_overlay import goal_view
 from goal_observer import observe_goal_stacks
-from scoreboard_view import compose,paste_video,paint_time
+from scoreboard_view import compose,player_picture,paint_time
 from goal_memory import GoalMemoryTimeline,gate_scoring
 from replay_timeline import ReplayTimeline
 
@@ -23,6 +23,7 @@ class ScoreStudio(tk.Toplevel):
         style.configure('Studio.TLabel',background='#080e19',foreground='#a8b9d0',font=('Microsoft YaHei UI',9))
         style.configure('Studio.TButton',background='#17243a',foreground='#edf3ff',padding=7,font=('Microsoft YaHei UI',9))
         style.map('Studio.TButton',background=[('active','#263b5b')])
+        style.configure('Transport.TButton',padding=(6,2),font=('Microsoft YaHei UI',9))
         self.history=[];self.history_key=None;self.photo=None;self.toggle_rois={}
         self.backend=Dashboard(self.master);self.backend.withdraw()
         self.backend.display_fps=15
@@ -33,14 +34,15 @@ class ScoreStudio(tk.Toplevel):
                              ('下一帧',lambda:self.backend.seek(self.backend.frame+1)),('复核 / 队号 / 标定',self.show_review),
                              ('将候选半段送入复核',self.review_candidates)):
             ttk.Button(bar,text=title,command=action,style='Studio.TButton').pack(side='left',padx=3)
-        ttk.Label(bar,text='≈ 为估分，? 为待确认',style='Studio.TLabel').pack(side='right',padx=8)
-        options=ttk.Frame(self,padding=(10,0,10,5),style='Studio.TFrame');options.pack(fill='x')
+        ttk.Button(bar,text='计分设置',command=self.toggle_settings,style='Studio.TButton').pack(side='right',padx=5)
+        self.settings=ttk.Frame(self,style='Studio.TFrame')
+        options=ttk.Frame(self.settings,padding=(10,0,10,5),style='Studio.TFrame');options.pack(fill='x')
         self.keep_placed=tk.BooleanVar(value=True)
         ttk.Checkbutton(options,text='已放置半段保持',variable=self.keep_placed,command=self.change_persistence).pack(side='left')
         ttk.Label(options,text='连续两次独立检测后保留数量；黄色按当前占领重新计分',style='Studio.TLabel').pack(side='left',padx=12)
         ttk.Button(options,text='从此帧清除半段记录',command=self.reset_persistence,style='Studio.TButton').pack(side='left')
         ttk.Button(options,text='本轮训练视频',command=self.open_batch,style='Studio.TButton').pack(side='left',padx=8)
-        timing=ttk.Frame(self,padding=(10,0,10,5),style='Studio.TFrame');timing.pack(fill='x')
+        timing=ttk.Frame(self.settings,padding=(10,0,10,5),style='Studio.TFrame');timing.pack(fill='x')
         ttk.Button(timing,text='设当前帧为比赛开始',command=self.set_match_start,style='Studio.TButton').pack(side='left')
         ttk.Button(timing,text='取消开赛点',command=self.clear_match_start,style='Studio.TButton').pack(side='left',padx=6)
         self.timing_note=tk.StringVar(value='开赛点未设置：暂不计分')
@@ -50,13 +52,14 @@ class ScoreStudio(tk.Toplevel):
         self.screen.bind('<Button-1>',self.select_card)
         transport=ttk.Frame(self,padding=(10,2),style='Studio.TFrame');transport.pack(fill='x')
         for label,delta in (('−5 秒',-5),('+5 秒',5)):
-            ttk.Button(transport,text=label,command=lambda d=delta:self.jump(d),style='Studio.TButton').pack(side='left',padx=3)
+            ttk.Button(transport,text=label,command=lambda d=delta:self.jump(d),style='Transport.TButton').pack(side='left',padx=3)
         ttk.Label(transport,text='播放速度',style='Studio.TLabel').pack(side='left',padx=(14,4))
         self.speed=tk.StringVar(value='1×')
         speed=ttk.Combobox(transport,textvariable=self.speed,values=['0.25×','0.5×','0.75×','1×','1.5×','2×','4×'],width=7,state='readonly')
         speed.pack(side='left');speed.bind('<<ComboboxSelected>>',lambda _:self.backend.set_playback_rate(float(self.speed.get().rstrip('×'))))
-        ttk.Button(transport,text='− 缩放',command=lambda:self.timeline.set_zoom(1/1.5),style='Studio.TButton').pack(side='right',padx=3)
-        ttk.Button(transport,text='+ 缩放',command=lambda:self.timeline.set_zoom(1.5),style='Studio.TButton').pack(side='right',padx=3)
+        ttk.Button(transport,text='− 缩放',command=lambda:self.timeline.set_zoom(1/1.5),style='Transport.TButton').pack(side='right',padx=3)
+        ttk.Button(transport,text='+ 缩放',command=lambda:self.timeline.set_zoom(1.5),style='Transport.TButton').pack(side='right',padx=3)
+        ttk.Button(transport,text='展开 / 收起时间轴',command=lambda:self.timeline.toggle_size(),style='Transport.TButton').pack(side='right',padx=3)
         self.timeline=ReplayTimeline(self,on_seek=self.backend.seek,on_pause=self.backend.pause);self.timeline.pack(fill='x',padx=10)
         self.bind('<space>',self.key_play)
         self.bind('<Left>',lambda e:self.key_step(e,-1));self.bind('<Right>',lambda e:self.key_step(e,1))
@@ -115,16 +118,20 @@ class ScoreStudio(tk.Toplevel):
         if not b.playing or now-getattr(self,'panel_time',-1e9)>=.2 or getattr(self,'panel_history_key',None)!=self.history_key:
             self.panel=compose(None,observed,b.roster,b.states,b.current.get('toggles',{}),self.history,review)
             self.panel_time=now;self.panel_history_key=self.history_key
-        picture=self.panel.copy();paste_video(picture,Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)));paint_time(picture,b.current['seconds'])
         width,height=max(1,self.screen.winfo_width()),max(1,self.screen.winfo_height())
-        scale=min(width/1600,height/960);size=(max(1,round(1600*scale)),max(1,round(960*scale)))
-        self.scale=scale;self.offset=((width-size[0])//2,(height-size[1])//2)
-        self.photo=ImageTk.PhotoImage(picture.resize(size,Image.Resampling.BILINEAR if b.playing else Image.Resampling.LANCZOS))
+        panel=self.panel.copy();paint_time(panel,b.current['seconds'])
+        picture,self.player_layout=player_picture(panel,Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)),width,height,b.playing)
+        self.scale=1;self.offset=(0,0)
+        self.photo=ImageTk.PhotoImage(picture)
         self.screen.delete('all');self.screen.create_image(*self.offset,image=self.photo,anchor='nw')
         self.timeline.configure_clip(b.session['source']['video']['path'],len(b.records.offsets),b.fps,self.history,start)
         self.timeline.position(b.frame)
         self.note.set(f'视频 {b.current["seconds"]:.2f}s · 已隐藏 {observed["excluded_ground_or_unconnected"]} 个地面 / 未连接候选 · AI 估分尚未确认落位、可见性和有效占领')
         self.observed=observed
+
+    def toggle_settings(self):
+        if self.settings.winfo_manager():self.settings.pack_forget()
+        else:self.settings.pack(fill='x',before=self.screen)
 
     def jump(self,seconds):
         b=self.backend
@@ -205,12 +212,12 @@ class ScoreStudio(tk.Toplevel):
 
     def select_card(self,event):
         if not getattr(self,'scale',0):return
-        x=(event.x-self.offset[0])/self.scale;y=(event.y-self.offset[1])/self.scale
+        x=event.x;y=event.y
         b=self.backend
-        if b.current is not None and 24<=x<=1048 and 107<=y<=683:
-            h,w=b.image.shape[:2];factor=min(1024/w,576/h)
-            ox=24+(1024-w*factor)/2;oy=107+(576-h*factor)/2
-            nx=(x-ox)/(w*factor);ny=(y-oy)/(h*factor)
+        if not hasattr(self,'player_layout'):return
+        vx,vy,vw,vh=self.player_layout['video']
+        if b.current is not None and vx<=x<=vx+vw and vy<=y<=vy+vh:
+            nx=(x-vx)/vw;ny=(y-vy)/vh
             hits=[o for o in b.current['robots'] if o['xyxy'][0]<=nx<=o['xyxy'][2] and o['xyxy'][1]<=ny<=o['xyxy'][3]]
             if hits:
                 b.pause();obj=min(hits,key=lambda o:(o['xyxy'][2]-o['xyxy'][0])*(o['xyxy'][3]-o['xyxy'][1]))
@@ -218,6 +225,9 @@ class ScoreStudio(tk.Toplevel):
                 for team,color in b.roster.items():
                     menu.add_command(label=f'设为 {team} · '+('红方' if color=='red' else '蓝方'),command=lambda t=team,tid=obj['track_id']:self.bind_robot(tid,t))
                 menu.tk_popup(event.x_root,event.y_root);return
+        sx,sy,sw,sh=self.player_layout['sidebar']
+        if not(sx<=x<=sx+sw and sy<=y<=sy+sh):return
+        x=1066+(x-sx)/sw*518;y=103+(y-sy)/sh*833
         if 1070<=x<1574 and 373<=y<752:
             col=int((x-1070)//172);row=int((y-373)//130)
             if col<3 and row<3:
