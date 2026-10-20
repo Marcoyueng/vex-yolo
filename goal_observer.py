@@ -61,14 +61,27 @@ def observe_goal_stacks(row,goal_rois=None):
     objects=unique_halves([dict(o) for o in row.get('field_objects',[]) if o.get('class_id') in (7,8,9,10)])
     reached={}
     for goal,base in rois.items():
-        found={i for i,o in enumerate(objects) if rooted(o['xyxy'],base)}
-        changed=True
-        while changed:
-            changed=False
-            for i,obj in enumerate(objects):
-                if i not in found and any(above(obj['xyxy'],objects[j]['xyxy']) for j in found):
-                    found.add(i);changed=True
-        reached[goal]=found
+        roots=[i for i,o in enumerate(objects) if rooted(o['xyxy'],base)]
+        # One physical stack is one upward chain, not a branching tree. A loose
+        # half beside a Cup must not become an extra half at the same level.
+        children={i:[j for j,o in enumerate(objects) if above(o['xyxy'],parent['xyxy'])] for i,parent in enumerate(objects)}
+        def best(index,heads=()):
+            obj=objects[index];weight=(1 if obj['class_id'] in (7,8,9) else .2)+.1*obj.get('confidence',0)
+            if obj['class_id'] in (7,8,9):
+                cx,cy=center(obj['xyxy'])
+                if len(heads)>=2:
+                    points=heads[-3:];mx=sum(p[0] for p in points)/len(points);my=sum(p[1] for p in points)/len(points)
+                    variance=sum((p[1]-my)**2 for p in points)
+                    slope=sum((p[1]-my)*(p[0]-mx) for p in points)/variance if variance else 0
+                    expected=mx+slope*(cy-my)
+                    width=max(obj['xyxy'][2]-obj['xyxy'][0],points[-1][2])
+                    if abs(cx-expected)>width*.65+.002:return (-1e6,[])
+                heads=heads+((cx,cy,obj['xyxy'][2]-obj['xyxy'][0]),)
+            tail=max((best(j,heads) for j in children[index]),key=lambda p:p[0],default=(0,[]))
+            if tail[0]<0:tail=(0,[])
+            return (weight+tail[0],[index]+tail[1])
+        chosen=max((best(i) for i in roots),key=lambda p:p[0],default=(0,[]))
+        reached[goal]=set(chosen[1])
     memberships={i:[g for g,s in reached.items() if i in s] for i in range(len(objects))}
     visible=[];goals={};counts={}
     for index,obj in enumerate(objects):
@@ -99,5 +112,5 @@ def observe_goal_stacks(row,goal_rois=None):
         if view['partial']:result['complete']=False
     # The visible colors are only a hypothesis of ownership; SC4 is not observed.
     return dict(goals=goals,objects=visible,score=result,regions=regions,
-                mode='provisional',scoring_validity='unconfirmed',seconds=row['seconds'],
+                mode='provisional',scoring_validity='unconfirmed',seconds=row['seconds'],match=row.get('match'),
                 excluded_ground_or_unconnected=len(objects)-len(visible))
