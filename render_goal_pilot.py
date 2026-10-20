@@ -8,6 +8,7 @@ from pathlib import Path
 import cv2
 from field_specialist import Specialist,PALETTE
 from overlay_style import draw,caption
+from goal_observer import observe_goal_stacks
 
 ROOT=Path(__file__).resolve().parent
 os.environ.setdefault('OMP_NUM_THREADS','8')
@@ -63,7 +64,8 @@ def render():
                     for key,box in goal_rois.items():
                         pixel=[round(v*d) for v,d in zip(box,[width,height,width,height])]
                         dashed(image,pixel,PALETTE[6]);caption(image,key+' ROI',(pixel[0],pixel[3]+20),PALETTE[6],.55)
-                    for obj in objects:
+                    goal_observation=observe_goal_stacks(dict(row,field_objects=objects,goal_rois=goal_rois))
+                    for obj in goal_observation['objects']:
                         cls=obj['class_id']
                         if cls==6:continue # separate calibrated Goal outlines avoid duplicate boxes
                         pixel=[round(v*d) for v,d in zip(obj['xyxy'],[width,height,width,height])]
@@ -75,7 +77,8 @@ def render():
                         caption(image,label,(pixel[0],pixel[1]-4),color,.45)
                     caption(image,'Goal ROI / Pin-Cup drafts; scoring unconfirmed',(24,height-62),(240,240,240),.62)
                     process.stdin.write(image.tobytes())
-                    row.update(field_objects=objects,goal_rois=goal_rois,field_scoring_validity='unconfirmed')
+                    row.update(field_objects=[o for o in objects if o['class_id']==6]+goal_observation['objects'],goal_rois=goal_rois,
+                               goal_estimate=goal_observation,field_scoring_validity='unconfirmed')
                     log.write(json.dumps(row)+'\n')
                     if index in (0,900,1800,2700,3600,4500,total-1):cv2.imwrite(str(target/f'preview-{index:06d}.jpg'),image)
                     if index%300==0:print(f'RENDER {index}/{total}; {len(objects)} field drafts',flush=True)
