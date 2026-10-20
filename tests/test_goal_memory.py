@@ -1,6 +1,6 @@
 import unittest
 from types import SimpleNamespace
-from goal_memory import GoalStackMemory,retain_goal_counts,GoalMemoryTimeline
+from goal_memory import GoalStackMemory,retain_goal_counts,GoalMemoryTimeline,gate_scoring
 
 
 def observation(yellow=1,red=1,blue=1,owner='red',partial=False):
@@ -11,6 +11,22 @@ def observation(yellow=1,red=1,blue=1,owner='red',partial=False):
 
 
 class GoalMemoryTests(unittest.TestCase):
+    def test_prestart_false_positive_cannot_seed_live_score(self):
+        rows=[]
+        for i,n in enumerate((5,5,1,1)):
+            o=observation(yellow=n,red=0,blue=0)
+            rows.append(dict(frame=i,seconds=i,goal_estimate=o,field_objects=[dict(observation='draft_model_detection',sample_seconds=i)]))
+        records=SimpleNamespace(offsets=list(range(4)),get=lambda i:rows[i])
+        timeline=GoalMemoryTimeline(records,1,start_frame=2)
+        before=timeline.view(1,rows[1]['goal_estimate'])
+        self.assertEqual(before['score']['red'],0)
+        self.assertEqual(before['match_timing']['state'],'prestart')
+        self.assertEqual(timeline.view(3,rows[3]['goal_estimate'])['goals']['G1']['counts']['yellow'],1)
+        self.assertEqual(timeline.history[1]['red'],0)
+        unset=GoalMemoryTimeline(records,1,start_frame=None)
+        self.assertEqual(unset.view(3,rows[3]['goal_estimate'])['score']['red'],0)
+        self.assertIsNone(unset.snapshots[-1]['G1']['yellow'])
+
     def test_one_false_detection_and_propagated_copies_cannot_lock_count(self):
         m=GoalStackMemory();m.update(observation(yellow=5),0)
         m.update(observation(yellow=5),0);m.update(observation(yellow=5),None)
