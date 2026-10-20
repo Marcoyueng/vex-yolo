@@ -8,6 +8,26 @@ RED='#ff6578';BLUE='#48b9ff';YELLOW='#ffda62';GREEN='#57dbb0'
 SIZE=(1600,960)
 
 
+def player_picture(panel,video,width,height,fast=False):
+    """Fit video and sidebar independently so a short timeline cannot shrink both."""
+    image=Image.new('RGB',(width,height),BG)
+    resample=Image.Resampling.BILINEAR if fast else Image.Resampling.LANCZOS
+    head=max(55,round(width/1600*100));image.paste(panel.crop((0,0,1600,100)).resize((width,head),resample),(0,0))
+    available=max(1,height-head-12)
+    side_scale=min(width*.32/518,available/833)
+    sw=max(1,round(518*side_scale));sh=max(1,round(833*side_scale));sx=width-sw-12
+    image.paste(panel.crop((1066,103,1584,936)).resize((sw,sh),resample),(sx,head))
+    vw=max(1,sx-30);vh=available
+    preview=video.copy();preview.thumbnail((vw,vh),resample)
+    vx=18+(vw-preview.width)//2;vy=head
+    image.paste(preview,(vx,vy))
+    remaining=height-(vy+preview.height)-20
+    if remaining>=55:
+        chart=panel.crop((22,710,1052,936));chart.thumbnail((vw,remaining),resample)
+        image.paste(chart,(18+(vw-chart.width)//2,vy+preview.height+10))
+    return image,dict(video=(vx,vy,preview.width,preview.height),sidebar=(sx,head,sw,sh))
+
+
 def paste_video(image,video):
     frame=video.copy();frame.thumbnail((1024,576))
     image.paste(frame,(24+(1024-frame.width)//2,107+(576-frame.height)//2))
