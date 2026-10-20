@@ -8,8 +8,8 @@ from PIL import Image,ImageTk
 from live_dashboard import Dashboard,ROOT
 from goal_overlay import goal_view
 from goal_observer import observe_goal_stacks
-from scoreboard_view import compose
-from goal_memory import GoalMemoryTimeline
+from scoreboard_view import compose,paste_video,paint_time
+from goal_memory import GoalMemoryTimeline,gate_scoring
 
 
 class ScoreStudio(tk.Toplevel):
@@ -24,6 +24,7 @@ class ScoreStudio(tk.Toplevel):
         style.map('Studio.TButton',background=[('active','#263b5b')])
         self.history=[];self.history_key=None;self.photo=None;self.toggle_rois={}
         self.backend=Dashboard(self.master);self.backend.withdraw()
+        self.backend.display_fps=15
         self.original_draw=self.backend.draw;self.backend.draw=self.update_view
         bar=ttk.Frame(self,padding=7,style='Studio.TFrame');bar.pack(fill='x')
         for title,action in (('打开本场比赛',self.backend.open_pilot),('打开其他结果',self.backend.open_files),
@@ -38,6 +39,11 @@ class ScoreStudio(tk.Toplevel):
         ttk.Label(options,text='连续两次独立检测后保留数量；黄色按当前占领重新计分',style='Studio.TLabel').pack(side='left',padx=12)
         ttk.Button(options,text='从此帧清除半段记录',command=self.reset_persistence,style='Studio.TButton').pack(side='left')
         ttk.Button(options,text='本轮训练视频',command=self.open_batch,style='Studio.TButton').pack(side='left',padx=8)
+        timing=ttk.Frame(self,padding=(10,0,10,5),style='Studio.TFrame');timing.pack(fill='x')
+        ttk.Button(timing,text='设当前帧为比赛开始',command=self.set_match_start,style='Studio.TButton').pack(side='left')
+        ttk.Button(timing,text='取消开赛点',command=self.clear_match_start,style='Studio.TButton').pack(side='left',padx=6)
+        self.timing_note=tk.StringVar(value='开赛点未设置：暂不计分')
+        ttk.Label(timing,textvariable=self.timing_note,style='Studio.TLabel').pack(side='left',padx=10)
         self.screen=tk.Canvas(self,bg='#080e19',highlightthickness=0);self.screen.pack(fill='both',expand=True)
         self.screen.bind('<Configure>',lambda _:self.update_view())
         self.screen.bind('<Button-1>',self.select_card)
@@ -53,18 +59,19 @@ class ScoreStudio(tk.Toplevel):
     def load_history(self):
         b=self.backend
         enabled=b.session.get('keep_placed_halves',True)
+        start=b.session.get('match_start_frame')
         self.keep_placed.set(enabled)
         key=(str(b.records.path),json.dumps(b.session['goal_rois'],sort_keys=True),enabled,
-             json.dumps(b.session['reviews'],sort_keys=True),tuple(b.session.get('stack_memory_resets',[])))
+             json.dumps(b.session['reviews'],sort_keys=True),tuple(b.session.get('stack_memory_resets',[])),start)
         if key==self.history_key:return
         self.history_key=key;self.history=[]
         self.stack_timeline=None
         if enabled:
-            self.stack_timeline=GoalMemoryTimeline(b.records,b.fps,b.session['goal_rois'],b.session['reviews'],b.session.get('stack_memory_resets',[]))
+            self.stack_timeline=GoalMemoryTimeline(b.records,b.fps,b.session['goal_rois'],b.session['reviews'],b.session.get('stack_memory_resets',[]),start_frame=start)
             self.history=self.stack_timeline.history
         else:
             for i in range(0,len(b.records.offsets),max(1,round(b.fps))):
-                row=b.records.get(i);observed=observe_goal_stacks(row,b.session['goal_rois'])
+                row=b.records.get(i);observed=gate_scoring(observe_goal_stacks(row,b.session['goal_rois']),i,start)
                 self.history.append(dict(seconds=row['seconds'],red=observed['score']['red'],blue=observed['score']['blue']))
         # Toggle calibration is local data, never embedded in the UI source.
         pointer=ROOT/'runs/active_toggle_pilot.json'
@@ -80,24 +87,44 @@ class ScoreStudio(tk.Toplevel):
     def update_view(self):
         b=self.backend
         if b.image is None:return
-        now=time.monotonic()
-        if b.playing and now-getattr(self,'last_paint',0)<1/15:return
-        self.last_paint=now
         if b.state()!='withdrawn':self.original_draw()
         self.load_history()
         observed=observe_goal_stacks(b.current,b.session['goal_rois'])
         if self.stack_timeline is not None:observed=self.stack_timeline.view(b.frame,observed)
-        overlay,observed=goal_view(b.image,b.current,self.toggle_rois,b.session['goal_rois'],observed)
+        else:observed=gate_scoring(observed,b.frame,b.session.get('match_start_frame'))
+        state=observed['match_timing']['state'];start=b.session.get('match_start_frame')
+        self.timing_note.set('开赛点未设置：暂不计分' if state=='unset' else f'开赛点 {start/b.fps:.2f}s · '+('开赛前不计分' if state=='prestart' else '比赛中 · AI 估分待复核'))
+        frame=cv2.resize(b.image,(1280,720)) if b.playing else b.image
+        overlay,observed=goal_view(frame,b.current,self.toggle_rois,b.session['goal_rois'],observed)
         review=next((r for r in b.session['reviews'] if r['frame']==b.frame),None)
-        picture=compose(Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)),observed,b.roster,b.states,b.current.get('toggles',{}),self.history,review)
+        if state!='active':review=None
+        now=time.monotonic()
+        # Render the video on each presentation tick, but reuse the expensive
+        # text/chart panel briefly during playback. Pause and seek are exact.
+        if not b.playing or now-getattr(self,'panel_time',-1e9)>=.2 or getattr(self,'panel_history_key',None)!=self.history_key:
+            self.panel=compose(None,observed,b.roster,b.states,b.current.get('toggles',{}),self.history,review)
+            self.panel_time=now;self.panel_history_key=self.history_key
+        picture=self.panel.copy();paste_video(picture,Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)));paint_time(picture,b.current['seconds'])
         width,height=max(1,self.screen.winfo_width()),max(1,self.screen.winfo_height())
         scale=min(width/1600,height/960);size=(max(1,round(1600*scale)),max(1,round(960*scale)))
         self.scale=scale;self.offset=((width-size[0])//2,(height-size[1])//2)
-        self.photo=ImageTk.PhotoImage(picture.resize(size,Image.Resampling.LANCZOS))
+        self.photo=ImageTk.PhotoImage(picture.resize(size,Image.Resampling.BILINEAR if b.playing else Image.Resampling.LANCZOS))
         self.screen.delete('all');self.screen.create_image(*self.offset,image=self.photo,anchor='nw')
         self.slider.configure(to=len(b.records.offsets)-1);self.slider.set(b.frame)
         self.note.set(f'视频 {b.current["seconds"]:.2f}s · 已隐藏 {observed["excluded_ground_or_unconnected"]} 个地面 / 未连接候选 · AI 估分尚未确认落位、可见性和有效占领')
         self.observed=observed
+
+    def set_match_start(self):
+        b=self.backend
+        if b.current is None:return
+        b.pause();b.session['match_start_frame']=b.frame;b.save_session()
+        self.history_key=None;self.update_view()
+
+    def clear_match_start(self):
+        b=self.backend
+        if b.current is None:return
+        b.pause();b.session.pop('match_start_frame',None);b.save_session()
+        self.history_key=None;self.update_view()
 
     def change_persistence(self):
         self.backend.pause()
