@@ -15,7 +15,7 @@ from match_state import TeamMemory, match_score
 from schema import REGIONS
 
 ROOT = Path(__file__).resolve().parent
-ROSTER = {'1744X':'red', '471A':'red', '88S':'blue', '2899A':'blue'}
+ROSTER = {'R1':'red', 'R2':'red', 'B1':'blue', 'B2':'blue'}
 COLORS = {'red':'#fa6060','blue':'#50b8ff','yellow':'#f9da52','unknown':'#a1a1aa'}
 STATUS = {'observed':'本帧已关联','predicted':'短时预测','lost':'遮挡 / 待重新确认','waiting':'等待首次确认'}
 OWNER_LABELS = {'待确认':'unknown','红方有效占领':'red','蓝方有效占领':'blue','中立':'neutral'}
@@ -80,7 +80,7 @@ class Dashboard(tk.Toplevel):
         self.start = None
         self.seek_active = False
         self.mode = tk.StringVar(value='选择机器人')
-        self.team = tk.StringVar(value='1744X')
+        self.team = tk.StringVar(value=next(iter(ROSTER)))
         self.goal = tk.StringVar(value='G0')
         self.status = tk.StringVar(value='请打开本场试播，或选择视频及对应检测 JSONL。原视频不复制、不改写。')
         self.score_title = tk.StringVar(value='红 —    蓝 —')
@@ -163,7 +163,13 @@ class Dashboard(tk.Toplevel):
         try:
             directory=Path(json.loads((ROOT/'runs/active_toggle_pilot.json').read_text(encoding='utf-8'))['directory'])
             source=json.loads((directory/'render-summary.json').read_text(encoding='utf-8'))['source']
-            self.load(source,directory/'corrected-identities.jsonl')
+            records=directory/'corrected-identities.jsonl'
+            goal_pointer=ROOT/'runs/active_goal_pilot.json'
+            if goal_pointer.exists():
+                goal_state=json.loads(goal_pointer.read_text(encoding='utf-8'))
+                candidate=Path(goal_state.get('preview_jsonl',''))
+                if goal_state.get('source')==source and candidate.is_file():records=candidate
+            self.load(source,records)
         except Exception as error:
             messagebox.showerror('无法打开本场试播',str(error),parent=self)
 
@@ -193,7 +199,7 @@ class Dashboard(tk.Toplevel):
             key=hashlib.sha256(json.dumps(signature,sort_keys=True).encode()).hexdigest()[:20]
             path=ROOT/'runs/dashboard'/f'{key}.json'
             TeamMemory(indexed.roster)
-            session=json.loads(path.read_text(encoding='utf-8')) if path.exists() else dict(version=1,roster=indexed.roster,bindings=[],goal_rois={},reviews=[],source=signature)
+            session=json.loads(path.read_text(encoding='utf-8')) if path.exists() else dict(version=1,roster=indexed.roster,bindings=[],goal_rois=indexed.get(0).get('goal_rois',{}),reviews=[],source=signature)
             if session.get('source') != signature:raise ValueError('复核文件属于不同视频 / 检测结果')
             memory=TeamMemory(session['roster'])
         except BaseException:
@@ -337,9 +343,18 @@ class Dashboard(tk.Toplevel):
         for goal,box in self.session['goal_rois'].items():
             coords=self.screen_box(box);self.canvas.create_rectangle(*coords,outline='#4ade80',width=2)
             self.canvas.create_text(coords[0],coords[1],text=goal,anchor='sw',fill='#4ade80')
+        for obj in self.current.get('field_objects',[]):
+            if obj.get('class_id')==6:continue
+            coords=self.screen_box(obj['xyxy']);cls=obj['class_id']
+            color={7:'#fa6060',8:'#50b8ff',9:'#f9da52',10:'#e892ef'}.get(cls,'#aaaaaa')
+            estimated=obj.get('observation')=='optical_flow_estimate'
+            self.canvas.create_rectangle(*coords,outline=color,width=1,dash=(4,3) if estimated else ())
+            label={7:'红半',8:'蓝半',9:'黄半',10:'Cup'}.get(cls,'?')+(' ~' if estimated else '')
+            self.canvas.create_text(coords[0],coords[1],text=label,fill=color,anchor='sw',font=('Microsoft YaHei UI',8))
         self.canvas.create_text(self.offset[0]+10,self.offset[1]+dh-15,text='miko yolo',anchor='sw',fill='white',font=('Arial',12,'bold'))
         toggles='  '.join(f'{key}:{value.get("color","unknown")}' for key,value in self.current.get('toggles',{}).items())
-        self.status.set(f'{self.current["seconds"]:.2f}s | 帧 {self.frame} | Toggle 视觉颜色 {toggles} | 点击框将该轨迹绑定至 {self.team.get()}')
+        drafts=len(self.current.get('field_objects',[]))
+        self.status.set(f'{self.current["seconds"]:.2f}s | 帧 {self.frame} | Toggle 视觉颜色 {toggles} | 场地候选框 {drafts}（得分未确认） | 点击机器人框绑定至 {self.team.get()}')
 
     def screen_box(self, box):
         h,w=self.image.shape[:2];ox,oy=self.offset
@@ -445,7 +460,7 @@ class Dashboard(tk.Toplevel):
             self.draft={f'G{i}':dict(red=None,blue=None,yellow=None) for i in range(9)}
             for var in self.owners.values():var.set('待确认')
             for var in (self.midred,self.midblue,self.bonusred,self.bonusblue):var.set('')
-            self.phase.set('end');self.review_time.set('尚无得分复核；Goal / Pin 自动计分模型尚未训练')
+            self.phase.set('end');self.review_time.set('尚无得分复核；Goal / Pin 候选检测不等于有效得分' if 'field_objects' in self.current else '尚无得分复核；当前结果没有 Goal / Pin 检测')
         self.refresh_scores();self.load_goal()
 
     def close(self):
