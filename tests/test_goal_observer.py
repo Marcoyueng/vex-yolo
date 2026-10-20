@@ -32,6 +32,27 @@ class GoalObserverTests(unittest.TestCase):
         self.assertEqual(result['goals']['G1']['status'],'occluded')
         self.assertIsNone(result['score']['goals']['G1']['red'])
 
+    def test_occluded_base_keeps_visible_yellow_subtotal(self):
+        row=self.row();row['robots']=[dict(xyxy=[.39,.48,.52,.65])]
+        row['field_objects'].append(dict(class_id=9,xyxy=[.44,.46,.46,.5]))
+        result=observe_goal_stacks(row)
+        self.assertEqual(result['score']['goals']['G1']['red'],10)
+        self.assertEqual(result['score']['red'],10)
+        self.assertTrue(result['goals']['G1']['partial'])
+        self.assertFalse(result['score']['complete'])
+
+    def test_mixed_color_stack_uses_region_only_for_yellow(self):
+        row=self.row()
+        # Six visible halves separated by Cup halves on a synthetic stack.
+        for i,color in enumerate((9,8,9,9,9,9)):
+            bottom=.5-i*.05
+            row['field_objects'].append(dict(class_id=color,xyxy=[.44,bottom-.025,.46,bottom]))
+            if i<5:row['field_objects'].append(dict(class_id=10,xyxy=[.44,bottom-.05,.46,bottom-.025]))
+        result=observe_goal_stacks(row)
+        self.assertEqual(result['goals']['G1']['counts'],dict(red=0,blue=1,yellow=5))
+        self.assertEqual(result['score']['goals']['G1']['red'],50)
+        self.assertEqual(result['score']['goals']['G1']['blue'],5)
+
     def test_visible_color_does_not_become_confirmed_ownership(self):
         result=observe_goal_stacks(self.row())
         self.assertEqual(result['mode'],'provisional')
@@ -44,6 +65,22 @@ class GoalObserverTests(unittest.TestCase):
                                  dict(class_id=9,xyxy=[.441,.462,.459,.48],confidence=.7)]
         result=observe_goal_stacks(row)
         self.assertEqual(result['goals']['G1']['counts']['yellow'],1)
+
+    def test_unobserved_cup_gap_does_not_join_a_nearby_carried_half(self):
+        row=self.row()
+        row['field_objects'] += [dict(class_id=9,xyxy=[.44,.46,.46,.5]),
+                                 dict(class_id=8,xyxy=[.445,.395,.465,.43]),
+                                 dict(class_id=9,xyxy=[.45,.33,.47,.365]),
+                                 dict(class_id=9,xyxy=[.45,.1,.47,.13])]
+        result=observe_goal_stacks(row)
+        self.assertEqual(result['goals']['G1']['counts'],dict(red=0,blue=0,yellow=1))
+        self.assertEqual(result['excluded_ground_or_unconnected'],3)
+
+    def test_colored_goal_rim_is_not_a_protruding_pin_half(self):
+        row=self.row()
+        row['field_objects'].append(dict(class_id=8,xyxy=[.415,.502,.485,.515]))
+        result=observe_goal_stacks(row)
+        self.assertEqual(result['goals']['G1']['counts']['blue'],0)
 
 
 if __name__=='__main__':unittest.main()
