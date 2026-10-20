@@ -31,7 +31,7 @@ def main():
                     project=str(target),name='specialist',seed=42,patience=12,plots=True,amp=False,
                     mosaic=0,close_mosaic=0,fliplr=0,flipud=0,scale=.12,translate=.06,
                     hsv_h=0,hsv_s=.12,hsv_v=.2,cache=False,optimizer='AdamW',lr0=.0003,cos_lr=True)
-        state.update(status='complete',weights=str(model.trainer.best),
+        state.update(status='complete',weights=str(model.trainer.best),epochs_completed=int(model.trainer.epoch)+1,
                      metrics={key:float(value) for key,value in model.trainer.metrics.items()})
         (target/'training-summary.json').write_text(json.dumps(state,indent=2),encoding='utf-8')
         save();print('STACK_TRAINING_COMPLETE '+json.dumps(state),flush=True)
