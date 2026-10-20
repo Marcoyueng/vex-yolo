@@ -23,7 +23,8 @@ def rooted(box,goal):
     cx,cy=center(box);gx,_=center(goal)
     gw,gh=goal[2]-goal[0],goal[3]-goal[1]
     return (abs(cx-gx)<=max(gw*.38,(box[2]-box[0])*.25) and
-            goal[1]-gh*.25<=box[3]<=goal[1]+gh*.55 and cy<=goal[1]+gh*.25)
+            goal[1]-gh*.25<=box[3]<=goal[1]+gh*.55 and cy<=goal[1]+gh*.25 and
+            box[1]<=goal[1]-min(gh*.06,(box[3]-box[1])*.15))
 
 
 def above(child,parent):
@@ -82,13 +83,20 @@ def observe_goal_stacks(row,goal_rois=None):
         # A reference ROI alone cannot establish that the Goal is visible.
         observed=base is not None and any(o.get('class_id')==6 and intersection_fraction(base,o['xyxy'])>.25 for o in row.get('field_objects',[]))
         unknown=base is None or not observed or occluded or ambiguous
-        counts[goal]=dict.fromkeys(('red','blue','yellow'),None) if unknown else candidate
+        # A robot covering the base does not erase already visible connected
+        # halves (SC2 also permits robot contact). Preserve a known subtotal,
+        # while keeping the unseen remainder explicitly incomplete.
+        has_visible_half=any(candidate.values())
+        counts[goal]=dict.fromkeys(('red','blue','yellow'),None) if unknown and not has_visible_half else candidate
         goals[goal]=dict(counts=candidate,objects=members,status='occluded' if occluded else 'ambiguous' if ambiguous else 'unobserved' if not observed else 'estimate',
-                         scoring_validity='unconfirmed')
+                         partial=bool(unknown),scoring_validity='unconfirmed')
     regions={region:('neutral' if row.get('toggles',{}).get(site,{}).get('color')=='yellow' else
                      row.get('toggles',{}).get(site,{}).get('color','unknown')) for region,site in SITES.items()}
     regions={r:c if c in ('red','blue','neutral') else 'unknown' for r,c in regions.items()}
     result=match_score(counts,regions)
+    for goal,view in goals.items():
+        result['goals'][goal]['partial']=view['partial']
+        if view['partial']:result['complete']=False
     # The visible colors are only a hypothesis of ownership; SC4 is not observed.
     return dict(goals=goals,objects=visible,score=result,regions=regions,
                 mode='provisional',scoring_validity='unconfirmed',seconds=row['seconds'],
