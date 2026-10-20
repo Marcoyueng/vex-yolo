@@ -77,11 +77,14 @@ def retain_goal_counts(observation,counts):
 
 class GoalMemoryTimeline:
     """Small change-point snapshots, always looked up at or before the frame."""
-    def __init__(self,records,fps,goal_rois=None,reviews=(),resets=()):
+    def __init__(self,records,fps,goal_rois=None,reviews=(),resets=(),start_frame=0):
         from goal_observer import observe_goal_stacks
-        keeper=GoalStackMemory();self.frames=[-1];self.snapshots=[keeper.snapshot()];self.history=[]
+        keeper=GoalStackMemory();self.frames=[-1];self.snapshots=[keeper.snapshot()];self.history=[];self.start_frame=start_frame
         reviews={r['frame']:r for r in reviews};resets=set(resets)
         for index in range(len(records.offsets)):
+            if start_frame is None or index<start_frame:
+                if index%max(1,round(fps))==0:self.history.append(dict(seconds=index/fps,red=0,blue=0))
+                continue
             row=records.get(index);sample=detector_sample(row)
             chart=index%max(1,round(fps))==0
             if sample is None and not chart and index not in reviews and index not in resets and not row.get('reviewed_goal_counts'):continue
@@ -101,4 +104,15 @@ class GoalMemoryTimeline:
 
     def view(self,frame,observation):
         counts=self.snapshots[bisect_right(self.frames,frame)-1]
-        return retain_goal_counts(observation,counts)
+        return gate_scoring(retain_goal_counts(observation,counts),frame,self.start_frame)
+
+
+def gate_scoring(observation,frame,start_frame):
+    """Keep detections inspectable, but never score or retain pre-start evidence."""
+    active=start_frame is not None and frame>=start_frame
+    result=dict(observation,match_timing=dict(start_frame=start_frame,state='active' if active else 'unset' if start_frame is None else 'prestart'))
+    if active:return result
+    result['goals']={g:dict(v,status='prestart',partial=False) for g,v in observation['goals'].items()}
+    result['score']=dict(observation['score'],red=0,blue=0,goal_red=0,goal_blue=0,red_midfield=0,blue_midfield=0,red_bonus=0,blue_bonus=0,complete=True,
+                         goals={g:dict(v,red=0,blue=0,partial=False) for g,v in observation['score']['goals'].items()})
+    return result
