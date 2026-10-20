@@ -95,8 +95,8 @@ class Workbench(tk.Tk):
         self.after(100, self.poll)
 
     def open_dashboard(self):
-        from live_dashboard import Dashboard
-        Dashboard(self)
+        from score_studio import ScoreStudio
+        ScoreStudio(self)
 
     def open_goal_annotations(self):
         if not self.confirm_dirty():return
