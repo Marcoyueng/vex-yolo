@@ -15,7 +15,8 @@ def timecode(frame,fps):
 class ReplayTimeline(tk.Canvas):
     LEFT=78
     def __init__(self,master,on_seek,on_pause,**kwargs):
-        super().__init__(master,height=155,bg='#101722',highlightthickness=0,**kwargs)
+        super().__init__(master,height=58,bg='#101722',highlightthickness=0,**kwargs)
+        self.compact=True;self.small_thumbnails={}
         self.on_seek=on_seek;self.on_pause=on_pause;self.total=1;self.fps=30;self.frame=0
         self.zoom=1.;self.first=0.;self.history=[];self.start=None;self.source=None
         self.thumbnails={};self.images=[];self.dragging=False;self.pending=None;self.scrub_timer=None
@@ -28,7 +29,7 @@ class ReplayTimeline(tk.Canvas):
 
     def configure_clip(self,path,total,fps,history,start):
         if path!=self.source:
-            self.source=path;self.total=total;self.fps=fps;self.first=0.;self.zoom=1.;self.thumbnails={}
+            self.source=path;self.total=total;self.fps=fps;self.first=0.;self.zoom=1.;self.thumbnails={};self.small_thumbnails={}
             self.pool.submit(self.make_thumbnails,path,total)
         self.history=history;self.start=start
 
@@ -46,7 +47,9 @@ class ReplayTimeline(tk.Canvas):
         while True:
             try:path,frame,image=self.results.get_nowait()
             except queue.Empty:break
-            if path==self.source:self.thumbnails[frame]=ImageTk.PhotoImage(Image.fromarray(image));changed=True
+            if path==self.source:
+                self.thumbnails[frame]=ImageTk.PhotoImage(Image.fromarray(image))
+                self.small_thumbnails[frame]=ImageTk.PhotoImage(Image.fromarray(image).resize((36,20)));changed=True
         if changed:self.paint()
         if not self.closed:self.poll_timer=self.after(80,self.poll)
 
@@ -63,6 +66,8 @@ class ReplayTimeline(tk.Canvas):
     def paint(self):
         self.delete('all');self.images=[];right=self.winfo_width()-12
         if right<=self.LEFT:return
+        if self.compact:
+            self.paint_compact(right);return
         self.create_rectangle(self.LEFT,28,right,91,fill='#202c3d',outline='#426080')
         self.create_rectangle(self.LEFT,96,right,132,fill='#172131',outline='#29384e')
         for y,label,color in ((57,'V1 视频','#87bff4'),(112,'S1 估分','#8e9db3')):
@@ -90,6 +95,30 @@ class ReplayTimeline(tk.Canvas):
             x=self.x(self.frame);self.create_line(x,20,x,135,fill='#ff5c72',width=2);self.create_polygon(x-6,22,x+6,22,x,30,fill='#ff5c72')
         self.create_text(self.LEFT,146,text='拖动回看 · Ctrl+滚轮缩放 · 滚轮平移',anchor='w',fill='#7d8ea6',font=('Microsoft YaHei UI',9))
         self.create_text(right,146,text=timecode(self.frame,self.fps),anchor='e',fill='#dbe8f8',font=('Consolas',10))
+
+    def paint_compact(self,right):
+        self.create_rectangle(self.LEFT,15,right,37,fill='#202c3d',outline='#426080')
+        self.create_text(8,27,text='回看',anchor='w',fill='#87bff4',font=('Microsoft YaHei UI',9))
+        step=next((s for s in (1,2,5,10,15,30,60,120,300,600,1800) if s>=self.span()/self.fps/max(2,self.width()/115)),3600)
+        for tick in range(math.ceil(self.first/self.fps/step),math.floor((self.first+self.span())/self.fps/step)+1):
+            x=self.x(tick*step*self.fps);self.create_text(x+2,6,text=timecode(round(tick*step*self.fps),self.fps),anchor='w',fill='#96a7bc',font=('Consolas',8))
+        if self.small_thumbnails:
+            for x in range(self.LEFT,round(right)-35,36):
+                frame=self.at(x+18);nearest=min(self.small_thumbnails,key=lambda f:abs(f-frame));photo=self.small_thumbnails[nearest]
+                self.create_image(x,16,image=photo,anchor='nw');self.images.append(photo)
+        visible=[p for p in self.history if self.first/self.fps<=p['seconds']<=(self.first+self.span())/self.fps]
+        maximum=max(10,max((max(p['red'],p['blue']) for p in visible),default=10))
+        for key,color in (('red','#ff6578'),('blue','#48b9ff')):
+            points=[(self.x(p['seconds']*self.fps),48-p[key]/maximum*8) for p in visible]
+            if len(points)>1:self.create_line(*[v for point in points for v in point],fill=color)
+        if self.start is not None and self.first<=self.start<=self.first+self.span():self.create_line(self.x(self.start),14,self.x(self.start),49,fill='#5ad4ad',dash=(2,2))
+        if self.first<=self.frame<=self.first+self.span():
+            x=self.x(self.frame);self.create_line(x,12,x,49,fill='#ff5c72',width=2);self.create_polygon(x-4,12,x+4,12,x,18,fill='#ff5c72')
+        self.create_text(self.LEFT,55,text='拖动回看 · Ctrl+滚轮缩放',anchor='w',fill='#7d8ea6',font=('Microsoft YaHei UI',7))
+        self.create_text(right,55,text=timecode(self.frame,self.fps),anchor='e',fill='#dbe8f8',font=('Consolas',8))
+
+    def toggle_size(self):
+        self.compact=not self.compact;self.configure(height=58 if self.compact else 155);self.paint()
 
     def press(self,event):
         if event.x<self.LEFT:return
