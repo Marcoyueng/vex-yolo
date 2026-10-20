@@ -313,20 +313,35 @@ class Dashboard(tk.Toplevel):
 
     def toggle_play(self):
         if not self.capture:return
-        if self.playing:self.pause();return
+        if self.playing:self.pause();self.draw();return
         if self.frame >= len(self.records.offsets)-1:self.seek(0)
-        self.playing=True;self.deadline=time.monotonic();self.tick()
+        self.playing=True;self.play_started=time.monotonic();self.play_start_frame=self.frame;self.tick()
+
+    def advance_to(self,index):
+        # Decode past late display frames, while consuming every identity record.
+        # Dropping a display frame must not drop a binding or last-seen update.
+        for skipped in range(self.frame+1,index):
+            if not self.capture.grab():raise ValueError(f'无法读取第 {skipped} 帧')
+            row=self.corrected(self.records.get(skipped))
+            self.memory.update(row['seconds'],row.get('robots',[]))
+        self.show_frame(index,read_sequential=True)
 
     def tick(self):
         self.timer=None
         if not self.playing:return
-        if self.frame+1 >= len(self.records.offsets):self.pause();return
-        try:self.show_frame(self.frame+1,read_sequential=True)
+        last=len(self.records.offsets)-1
+        target=min(last,self.play_start_frame+int((time.monotonic()-self.play_started)*self.fps))
+        try:
+            if target>self.frame:self.advance_to(target)
         except Exception as error:
             self.pause();messagebox.showerror('播放停止',str(error),parent=self);return
-        self.deadline+=1/self.fps
-        # Leave time for editing and pause events when decoding is slower than the source.
-        self.timer=self.after(max(10,round((self.deadline-time.monotonic())*1000)),self.tick)
+        if self.frame>=last:self.pause();self.draw();return
+        # Presentation follows elapsed time, rather than slowing the match to
+        # however many expensive scoreboard paints the computer can finish.
+        rate=min(self.fps,getattr(self,'display_fps',30))
+        elapsed=time.monotonic()-self.play_started
+        deadline=self.play_started+(int(elapsed*rate)+1)/rate
+        self.timer=self.after(max(1,round((deadline-time.monotonic())*1000)),self.tick)
 
     def draw(self):
         if self.image is None:return
