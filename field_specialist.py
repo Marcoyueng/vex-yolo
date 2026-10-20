@@ -51,10 +51,18 @@ class Specialist:
         """Input is 2048x1152 review coordinates; output uses normalized boxes."""
         hsv=cv2.cvtColor(image,cv2.COLOR_BGR2HSV)
         mask=field_mask(image.shape,self.field_polygon)
-        # Robot-carried objects remain unresolved by this field-only pilot.
-        for obj in robots:
-            x,y,x2,y2=[round(v*d) for v,d in zip(obj['xyxy'],[2048,1152,2048,1152])]
-            cv2.rectangle(mask,(x,y),(x2,y2),0,-1)
+        # Search only above calibrated Goal mouths. Contact with a robot does
+        # not by itself negate Placed; uncertainty is handled by goal_observer.
+        stack_mask=np.zeros(mask.shape,np.uint8)
+        stack_windows=[]
+        for goal in self.goals.values():
+            gx=(goal[0]+goal[2])/2;gw=goal[2]-goal[0];gh=goal[3]-goal[1]
+            left,right=max(0,round(gx-gw*1.8)),min(2047,round(gx+gw*1.8))
+            top,bottom=max(0,round(goal[1]-gh*6)),min(1151,round(goal[1]+gh*.3))
+            cv2.rectangle(stack_mask,(left,top),(right,bottom),255,-1)
+            for y in range(top+40,max(top+41,bottom),80):
+                stack_windows.append((round(gx),y,144))
+        mask &= stack_mask
         colored=(cv2.inRange(hsv,(0,120,75),(10,255,255))|
                  cv2.inRange(hsv,(170,120,75),(179,255,255))|
                  cv2.inRange(hsv,(86,130,90),(115,255,255))|
@@ -69,10 +77,8 @@ class Specialist:
                 if any((cx-px)**2+(cy-py)**2<35**2 for px,py,_ in centers):continue
                 centers.append((cx,cy,112))
         centers.extend((int((b[0]+b[2])/2),int((b[1]+b[3])/2),144) for b in self.goals.values())
-        # Sparse grid gives loose gray Cups a proposal even without a colored Pin.
-        for y in (380,580,780):
-            for x in range(480,1680,240):
-                if mask[y,x]:centers.append((x,y,176))
+        # Gray Cup proposals also stay inside Goal stack search areas.
+        centers.extend(stack_windows)
         windows=[]
         for cx,cy,side in centers:
             left=max(0,min(2048-side,cx-side//2));top=max(0,min(1152-side,cy-side//2))
