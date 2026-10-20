@@ -8,6 +8,19 @@ from live_dashboard import Dashboard, RecordIndex
 
 
 class DashboardTests(unittest.TestCase):
+    def test_overlap_review_can_unset_identity_only_inside_its_frame_range(self):
+        panel=SimpleNamespace(roster={'A':'red','B':'blue'},session=dict(bindings=[dict(frame=10,end_frame=20,track_id=1,team=None)]))
+        row=dict(frame=15,robots=[dict(track_id=1,team='A',alliance='red')])
+        self.assertIsNone(Dashboard.corrected(panel,row)['robots'][0]['team'])
+        self.assertEqual(Dashboard.corrected(panel,dict(row,frame=21))['robots'][0]['team'],'A')
+
+    def test_same_robot_duplicate_box_does_not_return_as_unknown_after_review(self):
+        panel=SimpleNamespace(roster={'A':'red','B':'blue'},session=dict(bindings=[dict(frame=0,track_id=2,team='A')]))
+        row=dict(frame=1,robots=[dict(track_id=1,team='A',alliance='red',xyxy=[.1,.1,.3,.4]),
+                                 dict(track_id=2,team=None,xyxy=[.1,.1,.3,.4])])
+        result=Dashboard.corrected(panel,row)
+        self.assertEqual(len(result['robots']),1);self.assertEqual(result['robots'][0]['track_id'],2)
+
     def test_speed_change_reanchors_without_a_video_time_jump(self):
         panel=SimpleNamespace(frame=210,playing=True)
         with patch('live_dashboard.time.monotonic',return_value=12.):Dashboard.set_playback_rate(panel,.5)
