@@ -120,7 +120,7 @@ class ScoreStudio(tk.Toplevel):
             self.panel_time=now;self.panel_history_key=self.history_key
         width,height=max(1,self.screen.winfo_width()),max(1,self.screen.winfo_height())
         panel=self.panel.copy();paint_time(panel,b.current['seconds'])
-        picture,self.player_layout=player_picture(panel,Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)),width,height,b.playing)
+        picture,self.player_layout=player_picture(panel,Image.fromarray(cv2.cvtColor(overlay,cv2.COLOR_BGR2RGB)),width,height,b.playing,history=self.history,seconds=b.current['seconds'])
         self.scale=1;self.offset=(0,0)
         self.photo=ImageTk.PhotoImage(picture)
         self.screen.delete('all');self.screen.create_image(*self.offset,image=self.photo,anchor='nw')
