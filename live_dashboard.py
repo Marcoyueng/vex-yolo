@@ -271,7 +271,7 @@ class Dashboard(tk.Toplevel):
         self.current=self.corrected(self.records.get(index))
         self.states=self.memory.update(self.current['seconds'],self.current.get('robots',[]))
         self.seek_active=True;self.slider.set(index);self.seek_active=False
-        self.restore_review()
+        self.restore_review(force=not read_sequential)
         self.draw()
 
     def seek(self, index):
@@ -312,7 +312,8 @@ class Dashboard(tk.Toplevel):
         except Exception as error:
             self.pause();messagebox.showerror('播放停止',str(error),parent=self);return
         self.deadline+=1/self.fps
-        self.timer=self.after(max(1,round((self.deadline-time.monotonic())*1000)),self.tick)
+        # Leave time for editing and pause events when decoding is slower than the source.
+        self.timer=self.after(max(10,round((self.deadline-time.monotonic())*1000)),self.tick)
 
     def draw(self):
         if self.image is None:return
@@ -422,11 +423,14 @@ class Dashboard(tk.Toplevel):
             payload=self.payload();result=match_score(**payload)
             snapshot=dict(frame=self.frame,seconds=self.current['seconds'],source='manual_sc2_sc6_review',input=payload,result=result)
             self.session['reviews']=[r for r in self.session['reviews'] if r['frame']!=self.frame]+[snapshot]
-            self.session['reviews'].sort(key=lambda r:r['frame']);self.save_session();self.restore_review()
+            self.session['reviews'].sort(key=lambda r:r['frame']);self.save_session();self.restore_review(force=True)
         except Exception as error:messagebox.showerror('无法保存计分',str(error),parent=self)
 
-    def restore_review(self):
+    def restore_review(self, force=False):
         reviews=[r for r in self.session['reviews'] if r['frame']<=self.frame]
+        signature=(reviews[-1]['frame'],reviews[-1]['frame']==self.frame) if reviews else (None,)
+        if not force and getattr(self,'review_signature',None)==signature:return
+        self.review_signature=signature
         if reviews:
             review=reviews[-1];data=review['input']
             self.draft={key:dict(value) for key,value in data['goals'].items()}
