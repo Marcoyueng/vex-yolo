@@ -130,11 +130,12 @@ class Specialist:
             points.extend(selected.tolist())
             ranges.append((start,len(points)))
         kept=[dict(o,observation='previous_goal_detection') for o in self.objects if o['class_id']==6]
+        tracked=set()
         if points:
             points=np.array(points,dtype=np.float32).reshape(-1,1,2)
             moved,status,_=cv2.calcOpticalFlowPyrLK(self.previous,current,points,None,winSize=(15,15),maxLevel=2)
             back,back_status,_=cv2.calcOpticalFlowPyrLK(current,self.previous,moved,None,winSize=(15,15),maxLevel=2)
-            for obj,(start,end) in zip(active,ranges):
+            for index,(obj,(start,end)) in enumerate(zip(active,ranges)):
                 good=(status[start:end,0]==1)&(back_status[start:end,0]==1)&(np.linalg.norm(back[start:end,0]-points[start:end,0],axis=1)<1.5)
                 if good.sum()<2:continue
                 delta=np.median(moved[start:end,0][good]-points[start:end,0][good],axis=0)
@@ -143,5 +144,15 @@ class Specialist:
                 box=[x+dx,y+dy,x2+dx,y2+dy]
                 if min(box)<0 or max(box)>1:continue
                 kept.append(dict(obj,xyxy=[float(v) for v in box],observation='optical_flow_estimate'))
+                tracked.add(index)
+        # Smooth, stationary colored halves may have fewer than two corners.
+        # Retain only when their actual current pixels still closely match;
+        # this never extends the time limit or turns an estimate into detection.
+        for index,(obj,(x,y,x2,y2)) in enumerate(zip(active,pixel_boxes)):
+            if index in tracked or x2-x<3 or y2-y<3:continue
+            before=self.previous[y:y2,x:x2];after=current[y:y2,x:x2]
+            difference=cv2.absdiff(before,after)
+            if after.std()>5 and difference.mean()<=4 and np.percentile(difference,90)<=12:
+                kept.append(dict(obj,observation='photometric_estimate'))
         self.previous=current;self.objects=kept
         return kept
