@@ -37,9 +37,16 @@ class RecordIndex:
                 row = json.loads(line)
                 if not isinstance(row.get('robots'),list):
                     raise ValueError('需要含 robots 的归一化身份结果；原始检测 JSONL 请先完成队伍绑定与转换')
+                listed=row.get('roster',{})
+                if not isinstance(listed,dict) or any(c not in ('red','blue') for c in listed.values()):
+                    raise ValueError('无效的本场队伍名单')
+                for team,color in listed.items():
+                    if team in self.roster and self.roster[team]!=color:raise ValueError('同一视频内名单阵营不一致')
+                    self.roster[team]=color
                 for obj in row['robots']:
                     team,color=obj.get('team'),obj.get('alliance')
                     if team and color in ('red','blue'):
+                        if listed and team not in listed:raise ValueError('机器人队号不属于本场名单')
                         if team in self.roster and self.roster[team] != color:
                             raise ValueError('同一视频内队伍阵营发生变化；请先按单场比赛切分结果')
                         self.roster[team]=color
