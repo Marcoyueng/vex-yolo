@@ -14,7 +14,7 @@ from match_state import TeamMemory
 from goal_observer import observe_goal_stacks
 from goal_overlay import goal_view
 from scoreboard_view import compose,SIZE,paste_video,paint_time
-from goal_memory import GoalMemoryTimeline
+from goal_memory import GoalMemoryTimeline,gate_scoring
 
 ROOT=Path(__file__).resolve().parent
 
@@ -22,6 +22,7 @@ ROOT=Path(__file__).resolve().parent
 def main():
     parser=argparse.ArgumentParser()
     parser.add_argument('--no-keep-placed',action='store_true')
+    parser.add_argument('--match-start-frame',type=int,help='Reviewed match start in source frames; unset disables scoring')
     args=parser.parse_args()
     cv2.setNumThreads(2)
     state=json.loads((ROOT/'runs/active_goal_pilot.json').read_text(encoding='utf-8'))
@@ -31,11 +32,12 @@ def main():
     toggle_rois=json.loads((accepted/'toggle-rois.json').read_text())
     capture=cv2.VideoCapture(state['source']);fps=capture.get(5);total=round(capture.get(7))
     if not capture.isOpened() or total!=len(records.offsets):raise ValueError('Source / records mismatch')
-    timeline=None if args.no_keep_placed else GoalMemoryTimeline(records,fps)
+    if args.match_start_frame is not None and not 0<=args.match_start_frame<total:raise ValueError('Invalid match start frame')
+    timeline=None if args.no_keep_placed else GoalMemoryTimeline(records,fps,start_frame=args.match_start_frame)
     history=[] if timeline is None else timeline.history
     if timeline is None:
         for i in range(0,total,max(1,round(fps))):
-            row=records.get(i);score=observe_goal_stacks(row)['score']
+            row=records.get(i);score=gate_scoring(observe_goal_stacks(row),i,args.match_start_frame)['score']
             history.append(dict(seconds=row['seconds'],red=score['red'],blue=score['blue']))
     output=target/'miko-yolo-score-studio.mp4';result_path=target/'goal-only-detections.jsonl'
     command=['ffmpeg','-hide_banner','-loglevel','error','-n','-f','rawvideo','-pix_fmt','rgb24','-s',f'{SIZE[0]}x{SIZE[1]}',
@@ -53,6 +55,7 @@ def main():
                     if not ok:raise ValueError('Video ended before detection records')
                     row=records.get(index);observation=observe_goal_stacks(row)
                     if timeline is not None:observation=timeline.view(index,observation)
+                    else:observation=gate_scoring(observation,index,args.match_start_frame)
                     overlay,observation=goal_view(frame,row,toggle_rois,observation=observation)
                     states=memory.update(row['seconds'],row['robots'])
                     key=json.dumps([observation['score'],[(g,v['counts'],v['status']) for g,v in observation['goals'].items()],
@@ -79,7 +82,7 @@ def main():
     video=next(s for s in probe['streams'] if s['codec_type']=='video')
     if int(video['nb_read_frames'])!=total:raise ValueError('Encoded frame count mismatch')
     report=dict(source=state['source'],input_records=state['preview_jsonl'],video=str(output),records=str(result_path),frames=total,
-                placed_halves_persistence=timeline is not None,
+                placed_halves_persistence=timeline is not None,match_start_frame=args.match_start_frame,
                 audio_streams=sum(s['codec_type']=='audio' for s in probe['streams']),
                 scoring_validity='unconfirmed',score_method='visible Goal-connected candidates; no referee validity or broadcast score OCR',
                 limitations='2-D connections do not prove Placed/visibility. Occluded Goals and midfield/bonus remain unknown.')
