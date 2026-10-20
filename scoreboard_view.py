@@ -30,14 +30,14 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
     def text(x,y,value,size=16,fill=TEXT,bold=False):d.text((x,y),str(value),font=font(size,bold),fill=fill)
     def card(box,fill=PANEL):d.rounded_rectangle(box,radius=13,fill=fill,outline=EDGE,width=1)
     def dot(x,y,color):d.ellipse((x,y,x+8,y+8),fill=color)
-    text(25,20,'MIKO YOLO',31,bold=True);text(260,31,'OVERRIDE  /  比赛分析',16,MUTED)
+    text(25,20,'MIKO YOLO',31,bold=True);text(260,31,'OVERRIDE  /  '+(observation.get('match') or '比赛分析'),16,MUTED)
     d.rounded_rectangle((1250,25,1574,64),radius=18,fill='#15372f')
     text(1271,33,'● 本地回放  ·  AI 估分待复核',15,GREEN)
     seconds=observation['seconds'];text(25,70,f'比赛画面   /   视频时间 {int(seconds//60):02d}:{seconds%60:04.1f}',16,MUTED)
     card((22,103,1050,690))
     if video is not None:paste_video(image,video)
     score=review['result'] if review is not None else observation['score']
-    label='人工复核快照' if review else 'AI 可见候选估分'
+    label='人工复核快照' if review else 'AI 稳定记录估分' if observation.get('persistence',{}).get('enabled') else 'AI 可见候选估分'
     unknown=not score['complete'];prefix='' if review else '≈ '
     for x,color,key,title in ((1070,RED,'red','红方 RED'),(1330,BLUE,'blue','蓝方 BLUE')):
         card((x,103,x+246,239),'#241725' if key=='red' else '#102638')
@@ -59,13 +59,13 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
         if not review and row.get('partial') and not any(values.values()):
             values=dict.fromkeys(('red','blue','yellow'),None)
         text(x+12,y+9,goal+(' · 中央' if index==0 else ''),18,bold=True)
-        status=row['status'];valid=status=='estimate'
+        status=row['status'];valid=status in ('estimate','stable','remembered')
         if review:
             valid=points['red'] is not None and points['blue'] is not None
             status_text='人工复核' if valid else '部分复核 · 待确认'
         else:
-            status_text='候选半段' if valid else {'occluded':'遮挡 · 待确认','unobserved':'未识别 · 待确认','ambiguous':'归属不明'}.get(status,'待确认')
-            if row.get('partial') and any(values.values()):status_text='已见半段 · 其余待确认'
+            status_text={'stable':'稳定记录','remembered':'遮挡保持 · 已记录','pending':'等待连续检测'}.get(status,'候选半段' if valid else {'occluded':'遮挡 · 待确认','unobserved':'未识别 · 待确认','ambiguous':'归属不明'}.get(status,'待确认'))
+            if row.get('partial') and any(values.values()) and status not in ('remembered','pending'):status_text='已见半段 · 其余待确认'
         text(x+12,y+38,status_text,12,MUTED)
         for j,(key,color) in enumerate((('red',RED),('blue',BLUE),('yellow',YELLOW))):
             dot(x+12+j*48,y+63,color);text(x+25+j*48,y+54,'?' if values[key] is None else values[key],16,color,True)
