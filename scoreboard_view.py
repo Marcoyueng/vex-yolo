@@ -8,6 +8,16 @@ RED='#ff6578';BLUE='#48b9ff';YELLOW='#ffda62';GREEN='#57dbb0'
 SIZE=(1600,960)
 
 
+def paste_video(image,video):
+    frame=video.copy();frame.thumbnail((1024,576))
+    image.paste(frame,(24+(1024-frame.width)//2,107+(576-frame.height)//2))
+
+
+def paint_time(image,seconds):
+    d=ImageDraw.Draw(image);d.rectangle((24,69,850,97),fill=BG)
+    d.text((25,70),f'比赛画面   /   视频时间 {int(seconds//60):02d}:{seconds%60:04.1f}',font=font(16),fill=MUTED)
+
+
 @lru_cache(maxsize=32)
 def font(size,bold=False):
     for path in (Path('C:/Windows/Fonts/msyhbd.ttc' if bold else 'C:/Windows/Fonts/msyh.ttc'),Path('C:/Windows/Fonts/arial.ttf')):
@@ -25,8 +35,7 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
     text(1271,33,'● 本地回放  ·  AI 估分待复核',15,GREEN)
     seconds=observation['seconds'];text(25,70,f'比赛画面   /   视频时间 {int(seconds//60):02d}:{seconds%60:04.1f}',16,MUTED)
     card((22,103,1050,690))
-    frame=video.copy();frame.thumbnail((1024,576))
-    image.paste(frame,(24+(1024-frame.width)//2,107+(576-frame.height)//2))
+    if video is not None:paste_video(image,video)
     score=review['result'] if review is not None else observation['score']
     label='人工复核快照' if review else 'AI 可见候选估分'
     unknown=not score['complete'];prefix='' if review else '≈ '
@@ -54,10 +63,11 @@ def compose(video,observation,roster,states,toggles,history=(),review=None):
             status_text='人工复核' if valid else '部分复核 · 待确认'
         else:
             status_text='候选半段' if valid else {'occluded':'遮挡 · 待确认','unobserved':'未识别 · 待确认','ambiguous':'归属不明'}.get(status,'待确认')
+            if row.get('partial') and any(values.values()):status_text='已见半段 · 其余待确认'
         text(x+12,y+38,status_text,12,MUTED)
         for j,(key,color) in enumerate((('red',RED),('blue',BLUE),('yellow',YELLOW))):
             dot(x+12+j*48,y+63,color);text(x+25+j*48,y+54,'?' if values[key] is None else values[key],16,color,True)
-        show=lambda value:'?' if value is None else str(value)
+        show=lambda value:'?' if value is None else str(value)+('+' if not review and row.get('partial') else '')
         text(x+12,y+88,('≈ ' if not review else '')+show(points['red'])+' / '+show(points['blue']),17,GREEN if valid else MUTED,True)
     text(1070,779,'TEAMS  /  身份持续显示',14,MUTED)
     state_map={s['team']:s for s in states}
