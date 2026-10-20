@@ -8,6 +8,25 @@ from live_dashboard import Dashboard, RecordIndex
 
 
 class DashboardTests(unittest.TestCase):
+    def test_playback_follows_wall_clock_when_paint_is_late(self):
+        shown=[];scheduled=[]
+        panel=SimpleNamespace(timer=None,playing=True,frame=100,play_start_frame=100,play_started=10.,fps=30,
+                              records=SimpleNamespace(offsets=range(500)),display_fps=15,
+                              advance_to=lambda i:shown.append(i),after=lambda ms,cb:scheduled.append(ms),tick=lambda:None)
+        with patch('live_dashboard.time.monotonic',return_value=12.):Dashboard.tick(panel)
+        self.assertEqual(shown,[160])
+        self.assertLessEqual(scheduled[0],67)
+
+    def test_skipped_display_frames_still_update_identity_memory(self):
+        consumed=[];shown=[];grabbed=[]
+        panel=SimpleNamespace(frame=2,capture=SimpleNamespace(grab=lambda:grabbed.append(True) or True),
+                              records=SimpleNamespace(get=lambda i:dict(seconds=i,robots=[dict(track_id=i)])),
+                              corrected=lambda r:r,memory=SimpleNamespace(update=lambda t,objects:consumed.append(t)),
+                              show_frame=lambda i,read_sequential:shown.append((i,read_sequential)))
+        Dashboard.advance_to(panel,6)
+        self.assertEqual(consumed,[3,4,5]);self.assertEqual(len(grabbed),3)
+        self.assertEqual(shown,[(6,True)])
+
     def test_explicit_roster_keeps_unreadable_robot_team_unset(self):
         with tempfile.TemporaryDirectory(dir=Path(__file__).parent) as folder:
             path=Path(folder)/'input.jsonl'
