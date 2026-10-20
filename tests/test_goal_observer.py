@@ -82,5 +82,14 @@ class GoalObserverTests(unittest.TestCase):
         result=observe_goal_stacks(row)
         self.assertEqual(result['goals']['G1']['counts']['blue'],0)
 
+    def test_one_stack_does_not_count_two_branches_at_the_same_level(self):
+        row=self.row()
+        row['field_objects'] += [dict(class_id=9,xyxy=[.44,.46,.46,.5],confidence=.95),
+                                 dict(class_id=10,xyxy=[.44,.42,.47,.46],confidence=.95),
+                                 dict(class_id=9,xyxy=[.44,.38,.46,.42],confidence=.95),
+                                 dict(class_id=9,xyxy=[.46,.38,.48,.42],confidence=.55)]
+        result=observe_goal_stacks(row)
+        self.assertEqual(result['goals']['G1']['counts']['yellow'],2)
+
 
 if __name__=='__main__':unittest.main()
