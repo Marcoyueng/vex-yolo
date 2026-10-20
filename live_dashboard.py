@@ -343,7 +343,9 @@ class Dashboard(tk.Toplevel):
         for goal,box in self.session['goal_rois'].items():
             coords=self.screen_box(box);self.canvas.create_rectangle(*coords,outline='#4ade80',width=2)
             self.canvas.create_text(coords[0],coords[1],text=goal,anchor='sw',fill='#4ade80')
-        for obj in self.current.get('field_objects',[]):
+        from goal_observer import observe_goal_stacks
+        goal_observation=observe_goal_stacks(self.current,self.session['goal_rois'])
+        for obj in goal_observation['objects']:
             if obj.get('class_id')==6:continue
             coords=self.screen_box(obj['xyxy']);cls=obj['class_id']
             color={7:'#fa6060',8:'#50b8ff',9:'#f9da52',10:'#e892ef'}.get(cls,'#aaaaaa')
@@ -353,7 +355,7 @@ class Dashboard(tk.Toplevel):
             self.canvas.create_text(coords[0],coords[1],text=label,fill=color,anchor='sw',font=('Microsoft YaHei UI',8))
         self.canvas.create_text(self.offset[0]+10,self.offset[1]+dh-15,text='miko yolo',anchor='sw',fill='white',font=('Arial',12,'bold'))
         toggles='  '.join(f'{key}:{value.get("color","unknown")}' for key,value in self.current.get('toggles',{}).items())
-        drafts=len(self.current.get('field_objects',[]))
+        drafts=len(goal_observation['objects'])
         self.status.set(f'{self.current["seconds"]:.2f}s | 帧 {self.frame} | Toggle 视觉颜色 {toggles} | 场地候选框 {drafts}（得分未确认） | 点击机器人框绑定至 {self.team.get()}')
 
     def screen_box(self, box):
@@ -435,16 +437,20 @@ class Dashboard(tk.Toplevel):
     def save_review(self):
         if not self.current:return
         try:
+            if getattr(self,'pending_candidate_review',False) and not self.valid.get():
+                raise ValueError('候选数量尚未复核；请检查各 Goal 的 Placed 和可见条件，勾选 SC2/SC3 确认后再保存。')
             payload=self.payload();result=match_score(**payload)
             snapshot=dict(frame=self.frame,seconds=self.current['seconds'],source='manual_sc2_sc6_review',input=payload,result=result)
             self.session['reviews']=[r for r in self.session['reviews'] if r['frame']!=self.frame]+[snapshot]
             self.session['reviews'].sort(key=lambda r:r['frame']);self.save_session();self.restore_review(force=True)
+            self.pending_candidate_review=False
         except Exception as error:messagebox.showerror('无法保存计分',str(error),parent=self)
 
     def restore_review(self, force=False):
         reviews=[r for r in self.session['reviews'] if r['frame']<=self.frame]
         signature=(reviews[-1]['frame'],reviews[-1]['frame']==self.frame) if reviews else (None,)
         if not force and getattr(self,'review_signature',None)==signature:return
+        self.pending_candidate_review=False
         self.review_signature=signature
         if reviews:
             review=reviews[-1];data=review['input']
