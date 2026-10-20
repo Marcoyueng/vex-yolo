@@ -19,6 +19,6 @@ def goal_view(frame,row,toggle_rois,goal_rois=None):
         pixel=[round(v*d) for v,d in zip(obj['xyxy'],[w,h,w,h])];cls=obj['class_id'];color=PALETTE[cls]
         cv2.rectangle(image,tuple(pixel[:2]),tuple(pixel[2:]),color,2)
         label=obj['goal_id']+'/'+{7:'R',8:'B',9:'Y',10:'Cup'}[cls]
-        if obj.get('observation')=='optical_flow_estimate':label+=' ~'
+        if obj.get('observation') in ('optical_flow_estimate','photometric_estimate'):label+=' ~'
         caption(image,label,(pixel[0],pixel[1]-4),color,.45)
     return image,observation
