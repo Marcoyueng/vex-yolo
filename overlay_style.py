@@ -18,7 +18,8 @@ def draw(image,robots,toggles,rois):
         color=COLORS.get(obj.get('alliance'),COLORS[None])
         x1,y1,x2,y2=[round(n*d) for n,d in zip(obj['xyxy'],[w,h,w,h])]
         cv2.rectangle(image,(x1,y1),(x2,y2),color,3)
-        text=f'{obj["team"]} | {obj["alliance"].upper()}' if obj.get('team') and obj.get('alliance') else 'Team unconfirmed'
+        text=(f'{obj["team"]} | {obj["alliance"].upper()}' if obj.get('team') and obj.get('alliance') else
+              f'{obj.get("alliance", "").upper() if obj.get("alliance") else ""} ROBOT ID{obj.get("track_id", "?")}'.strip())
         caption(image,text,(x1+5,y1+29),color,.8)
     for key,state in toggles.items():
         if key not in rois:continue
