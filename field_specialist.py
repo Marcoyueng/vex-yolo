@@ -94,11 +94,11 @@ class Specialist:
                 cls=int(cls);a,b,c,d=box
                 global_box=[(ox+a)/2048,(oy+b)/1152,(ox+c)/2048,(oy+d)/1152]
                 cx,cy=round((ox+a+ox+c)/2),round((oy+b+oy+d)/2)
-                if not mask[max(0,min(1151,cy)),max(0,min(2047,cx))]:continue
                 if min(c-a,d-b)<5:continue
                 if cls==6:
                     # A learned detection must overlap a separately reviewed Goal ROI.
                     if not any(overlap(global_box,[g[0]/2048,g[1]/1152,g[2]/2048,g[3]/1152])>.2 for g in self.goals.values()):continue
+                elif not mask[max(0,min(1151,cy)),max(0,min(2047,cx))]:continue
                 objects.append(dict(class_id=cls,**{'class':NAMES[cls]},xyxy=global_box,confidence=confidence,
                                     observation='draft_model_detection',sample_seconds=seconds,scoring_validity='unconfirmed'))
         self.objects=suppress(objects)
