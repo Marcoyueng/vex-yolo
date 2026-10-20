@@ -258,13 +258,16 @@ class Dashboard(tk.Toplevel):
         # Only the newest reviewed track can own each team at a given time.
         newest={}
         for binding in overrides.values():
+            if binding.get('team') is None:continue
             if binding['team'] not in newest or binding['frame'] >= newest[binding['team']]['frame']:
                 newest[binding['team']]=binding
         applied=set()
         for obj in row['robots']:
             binding=overrides.get(obj.get('track_id'))
             if binding:
-                if newest[binding['team']] is binding:
+                if binding.get('team') is None:
+                    obj.update(team=None,alliance=None,identity_source='reviewed_overlap_uncertain')
+                elif newest[binding['team']] is binding:
                     obj.update(team=binding['team'],alliance=self.roster[binding['team']],identity_source='manual_review')
                     applied.add(binding['team'])
                 else:
@@ -272,6 +275,7 @@ class Dashboard(tk.Toplevel):
         # An explicit current-box correction takes priority over a stale automatic assignment.
         for obj in row['robots']:
             if obj.get('team') in applied and obj.get('identity_source') != 'manual_review':
+                obj['_conflicting_team']=obj['team']
                 obj.update(team=None,alliance=None)
         # A roster is fixed for this match. Never turn a blue team red because
         # of an appearance guess, or display the same team on two robots.
@@ -280,7 +284,17 @@ class Dashboard(tk.Toplevel):
             team=obj.get('team')
             if team in self.roster and team not in owners:
                 obj['alliance']=self.roster[team];owners[team]=obj
-            elif team is not None:obj.update(team=None,alliance=None,identity_source='identity_conflict')
+            elif team is not None:obj.update(team=None,alliance=None,identity_source='identity_conflict',_conflicting_team=team)
+        deduplicated=[]
+        for obj in row['robots']:
+            duplicate_of=owners.get(obj.pop('_conflicting_team',None))
+            if duplicate_of is not None and 'xyxy' in obj and 'xyxy' in duplicate_of:
+                a=obj['xyxy'];b=duplicate_of['xyxy']
+                intersection=max(0,min(a[2],b[2])-max(a[0],b[0]))*max(0,min(a[3],b[3])-max(a[1],b[1]))
+                union=(a[2]-a[0])*(a[3]-a[1])+(b[2]-b[0])*(b[3]-b[1])-intersection
+                if union>0 and intersection/union>.65:continue
+            deduplicated.append(obj)
+        row['robots']=deduplicated
         slots={c:sum(self.roster[t]==c for t in owners) for c in ('red','blue')}
         for obj in row['robots']:
             if obj.get('team') is None and obj.get('alliance') in slots:
