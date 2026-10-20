@@ -72,6 +72,7 @@ class Workbench(tk.Tk):
         tabs = ttk.Notebook(self)
         tabs.pack(fill='both', expand=True, padx=16)
         annotation = ttk.Frame(tabs, padding=12)
+        self.tabs, self.annotation_tab = tabs, annotation
         jobs = ttk.Frame(tabs, padding=16)
         scoring = ttk.Frame(tabs, padding=16)
         event = ttk.Frame(tabs, padding=12)
@@ -88,6 +89,7 @@ class Workbench(tk.Tk):
         ttk.Label(tracking, text='miko yolo · 全场身份与九 Goal 计分', font=('Microsoft YaHei UI', 17, 'bold')).pack(anchor='w', pady=12)
         ttk.Label(tracking, text='四支队伍持续显示；短时遮挡用虚线预测；暂停后点击机器人框可纠正队号。\n九个 Goal 支持位置标定和 SC2–SC7 计分复核，未知项保留问号。\n当前试播已接入机器人 / Toggle 结果；Goal、Pin 半段自动计分仍需要对应标注训练。', wraplength=950).pack(anchor='w', pady=12)
         ttk.Button(tracking, text='打开跟踪与计分窗口', command=self.open_dashboard).pack(anchor='w', pady=12)
+        ttk.Button(tracking, text='查看本轮训练标注', command=self.open_goal_annotations).pack(anchor='w', pady=6)
         ttk.Label(self, textvariable=self.status, padding=12).pack(fill='x')
         self.protocol('WM_DELETE_WINDOW', self.close)
         self.after(100, self.poll)
@@ -95,6 +97,21 @@ class Workbench(tk.Tk):
     def open_dashboard(self):
         from live_dashboard import Dashboard
         Dashboard(self)
+
+    def open_goal_annotations(self):
+        if not self.confirm_dirty():return
+        try:
+            state=json.loads((ROOT/'runs/active_goal_pilot.json').read_text(encoding='utf-8'))
+            dataset=Path(state['directory'])/'dataset'
+            files=sorted((dataset/'images/train').glob('*.jpg'))
+            if not files:raise ValueError('尚无本轮训练标注')
+            labels=dataset/'labels/train'
+            # Scope includes assistant-reviewed crops, not complete original scenes.
+            ensure_schema(labels)
+            self.files,self.index=files,0;self.label_dir.set(str(labels))
+            self.current_class.set('goal');self.load_image();self.tabs.select(self.annotation_tab)
+            self.status.set('本轮为助手初步标注的局部裁剪；可查看和修正。尚未标注落位、套叠和有效得分状态。')
+        except Exception as error:messagebox.showerror('无法打开训练标注',str(error))
 
     def button(self, parent, text, command):
         b = ttk.Button(parent, text=text, command=command)
