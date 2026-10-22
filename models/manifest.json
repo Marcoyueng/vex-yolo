@@ -1,0 +1,49 @@
+{
+  "release": "2026.10.22-r13",
+  "robot_training_round": 10,
+  "replay_review_revision": 13,
+  "pin_goal_retraining_started": false,
+  "models": {
+    "robot-r10.pt": {
+      "sha256": "4f2da7ed2b2741c6739d9ea1bdcff2398197cf4f2c9d3a0ba6fddb569f7fa762",
+      "bytes": 5483226,
+      "scope": [
+        "robot"
+      ],
+      "imgsz": 640,
+      "epochs_this_round": 20,
+      "training_images": 105,
+      "validation_images": 11,
+      "status": "experimental_not_promoted_old_cases_regressed",
+      "team_identity_model_trained": false,
+      "independent_match_validation": false
+    },
+    "goal-pin-cup-20261019.pt": {
+      "sha256": "e6d614ba066c7792cd5b2639cbbe5668173c7415d46022355f0dbc49ec78963c",
+      "bytes": 5465114,
+      "scope": [
+        "goal",
+        "pin_half_red",
+        "pin_half_blue",
+        "pin_half_yellow",
+        "cup"
+      ],
+      "imgsz": 320,
+      "inference": "calibrated per-goal crops",
+      "independent_match_validation": false,
+      "labels": "assistant-reviewed partial crops",
+      "scoring_validity": "unconfirmed"
+    },
+    "toggle-color.pt": {
+      "sha256": "fc4ddd850bd04805af71b29959e63b52d5c5bbd9f3cd3faefbd7478f221bf2d7",
+      "bytes": 24317,
+      "scope": [
+        "red",
+        "blue",
+        "yellow"
+      ],
+      "inference": "ColorReader with calibrated Toggle regions and face orientation",
+      "scoring_validity": "unconfirmed"
+    }
+  }
+}

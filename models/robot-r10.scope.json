@@ -1,0 +1,8 @@
+{
+  "scope": [
+    "robot"
+  ],
+  "status": "experimental",
+  "team_identity_model_trained": false,
+  "notes": "The checkpoint contains the shared class schema; only robot detections are evaluated."
+}

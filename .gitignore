@@ -9,3 +9,10 @@ weights/
 *.avi
 *.jpg
 *.png
+
+# The explicitly published model snapshot is versioned; other weights remain local.
+!models/*.pt
+.cache/
+*.zip
+.env
+.env.*

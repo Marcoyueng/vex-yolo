@@ -30,6 +30,7 @@ def main():
     save()
     try:
         for video in videos:
+            colors.set_face_geometry(video.get('toggle_face_geometry',{}))
             while True:
                 try:robot_state=json.loads((ROOT/'runs/latest_elims_robot_inference.json').read_text())
                 except (FileNotFoundError,json.JSONDecodeError):time.sleep(1);continue

@@ -16,11 +16,13 @@ class TeamMemory:
         self.prediction_seconds = prediction_seconds
         self.tracks = {}
         self.last_time = None
+        self.remaining_candidate = None
 
     def update(self, seconds, robots):
         if not math.isfinite(seconds) or (self.last_time is not None and seconds < self.last_time):
             raise ValueError('时间必须递增；跳转前请重置跟踪状态')
         self.last_time = seconds
+        self.reconnect(seconds, robots)
         seen = set()
         for team in self.roster:
             candidates = [r for r in robots if r.get('team') == team]
@@ -36,8 +38,10 @@ class TeamMemory:
                 dt = seconds-old['last_seen']
                 # Bound motion; do not let a single noisy detection launch a box.
                 velocity = [max(-.25, min(.25, (a-b)/dt)) for a, b in zip(box, old['xyxy'])]
+            continuous = old and old.get('track_id') == obj.get('track_id') and seconds-old['last_seen'] <= .5
             self.tracks[team] = dict(team=team, alliance=self.roster[team], xyxy=box,
                                      last_seen=seconds, velocity=velocity, track_id=obj.get('track_id'),
+                                     stable_since=old.get('stable_since',seconds) if continuous else seconds,
                                      identity_source=obj.get('identity_source', 'associated'))
             seen.add(team)
         result = []
@@ -59,6 +63,133 @@ class TeamMemory:
                 row['xyxy'] = None
             result.append(row)
         return result
+
+    def reconnect(self, seconds, robots):
+        self._spatial_reconnect(seconds, robots)
+        self._remaining_reconnect(seconds, robots)
+
+    def _remaining_reconnect(self, seconds, robots):
+        """Recover the sole missing team from a sustained four-robot observation.
+
+        This is a roster/continuity hypothesis. Three stable peers and one
+        distinct, confident robot are required; no new box is synthesized.
+        Unlike spatial recovery, elapsed occlusion time is not a disqualifier.
+        """
+        pending = self.remaining_candidate
+        self.remaining_candidate = None
+        if len(robots) != 4:
+            return
+        known = [o for o in robots if o.get('team') in self.roster]
+        unknown = [o for o in robots if o.get('team') is None]
+        present = {o['team'] for o in known}
+        if len(known) != 3 or len(present) != 3 or len(unknown) != 1:
+            return
+        team = next(iter(set(self.roster)-present))
+        if team not in self.tracks:
+            return
+        obj = unknown[0]
+        if obj.get('track_id') is None or obj.get('confidence',0) < .35:
+            return
+        if obj.get('field_validated') is False or obj.get('class_id',0) != 0:
+            return
+        if obj.get('identity_source') in ('reviewed_overlap_uncertain','superseded_review','identity_conflict'):
+            return
+        if obj.get('alliance') not in (None,self.roster[team]):
+            return
+        box = obj.get('xyxy',[])
+        if len(box)!=4 or not all(math.isfinite(v) and 0<=v<=1 for v in box) or box[2]<=box[0] or box[3]<=box[1]:
+            return
+        if len({o.get('track_id') for o in robots}) != 4:
+            return
+        for peer in known:
+            old = self.tracks.get(peer['team'])
+            if old is None or seconds-old['last_seen']>.5 or old.get('track_id')!=peer.get('track_id'):
+                return
+            if seconds-old.get('stable_since',seconds)<.25:
+                return
+            b=peer['xyxy']
+            intersection=max(0,min(box[2],b[2])-max(box[0],b[0]))*max(0,min(box[3],b[3])-max(box[1],b[1]))
+            area=(box[2]-box[0])*(box[3]-box[1]); other=(b[2]-b[0])*(b[3]-b[1])
+            if intersection/max(1e-12,area+other-intersection)>.65:
+                return
+            # A small duplicate crop inside a known robot is not a fourth car.
+            if intersection/max(1e-12,min(area,other))>.9:
+                return
+        signature=(team,obj['track_id'],tuple(sorted((p['team'],p['track_id']) for p in known)))
+        if pending is not None:
+            previous=pending['box']
+            displacement=math.hypot((box[0]+box[2]-previous[0]-previous[2])/2,
+                                    (box[1]+box[3]-previous[1]-previous[3])/2)
+            if displacement>.06+.4*max(0,seconds-pending['last']):
+                pending=None
+        if pending is None or pending['signature']!=signature or not 0<seconds-pending['last']<=.15:
+            pending=dict(signature=signature,start=seconds,last=seconds,frames=1,box=list(box))
+        else:
+            pending=dict(pending,last=seconds,frames=pending['frames']+1,box=list(box))
+        self.remaining_candidate=pending
+        if pending['frames']>=3 and seconds-pending['start']>=.1-1e-9:
+            obj.update(team=team,alliance=self.roster[team],identity_source='unique_remaining_robot_reconnect',
+                       identity_evidence='Three stable known peers and one distinct robot over multiple frames')
+            self.remaining_candidate=None
+
+    def _spatial_reconnect(self, seconds, robots):
+        """Recover a recent lost identity only with three independently visible peers.
+
+        Updates the current detection for both overlays and cards. A spatial
+        recovery remains a tracking hypothesis, never a reviewed team label.
+        """
+        present = {r.get('team') for r in robots if r.get('team') in self.roster}
+        missing = set(self.roster)-present
+        if len(missing) != 1:
+            return
+        team = next(iter(missing)); old = self.tracks.get(team)
+        if old is None or not 0 <= seconds-old['last_seen'] <= 2:
+            return
+        # A peer which just changed tracker ID is not a reliable spatial anchor.
+        for peer in present:
+            previous = self.tracks.get(peer)
+            current = [r for r in robots if r.get('team') == peer]
+            if len(current) != 1 or previous is None or seconds-previous['last_seen'] > .5:
+                return
+            if previous.get('track_id') is None or current[0].get('track_id') != previous['track_id']:
+                return
+        box = old['xyxy']; age = seconds-old['last_seen']; velocity = old['velocity']
+        cx=(box[0]+box[2])/2+(velocity[0]+velocity[2])/2*age
+        cy=(box[1]+box[3])/2+(velocity[1]+velocity[3])/2*age
+        choices=[]
+        for obj in robots:
+            if obj.get('team') is not None or obj.get('track_id') is None:
+                continue
+            if obj.get('field_validated') is False or obj.get('class_id',0)!=0:
+                continue
+            if obj.get('identity_source') in ('reviewed_overlap_uncertain','superseded_review','identity_conflict'):
+                continue
+            b=obj.get('xyxy',[])
+            if len(b)!=4 or not all(math.isfinite(v) and 0<=v<=1 for v in b) or b[2]<=b[0] or b[3]<=b[1]:
+                continue
+            if obj.get('alliance') not in (None,self.roster[team]):
+                continue
+            if any(t!=team and obj['track_id']==s.get('track_id') for t,s in self.tracks.items()):
+                continue
+            area=(b[2]-b[0])*(b[3]-b[1]); previous_area=(box[2]-box[0])*(box[3]-box[1])
+            if not .3 <= area/previous_area <= 3:
+                continue
+            # A new crop of a visible peer is not the missing robot, even if
+            # it is close to the lost position. This matters during overlaps.
+            duplicate_peer=False
+            for peer in robots:
+                if peer.get('team') not in present:continue
+                p=peer['xyxy'];other=(p[2]-p[0])*(p[3]-p[1])
+                intersection=max(0,min(b[2],p[2])-max(b[0],p[0]))*max(0,min(b[3],p[3])-max(b[1],p[1]))
+                if intersection/max(1e-12,area+other-intersection)>.65 or intersection/max(1e-12,min(area,other))>.9:
+                    duplicate_peer=True;break
+            if duplicate_peer:continue
+            distance=math.hypot((b[0]+b[2])/2-cx,(b[1]+b[3])/2-cy)
+            if distance <= min(.18,.08+.05*age):choices.append((distance,obj))
+        choices.sort(key=lambda pair:pair[0])
+        if not choices or (len(choices)>1 and choices[1][0]-choices[0][0]<.04):
+            return
+        choices[0][1].update(team=team,alliance=self.roster[team],identity_source='recent_lost_spatial_reconnect')
 
 
 def goal_scores(goals, owners):

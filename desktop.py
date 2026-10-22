@@ -12,6 +12,7 @@ from tkinter import filedialog, messagebox, ttk
 
 from PIL import Image, ImageTk, ImageOps
 from schema import CLASSES, COLORS, REGIONS, ensure_schema, migrate_v2
+from model_bundle import default_robot_weights
 from scoring import yellow_score
 from event_project import connect, add_media, import_matches, CSV_FIELDS, VIDEO_EXTS, bind_team, remove_binding, export_identities, team_id
 
@@ -354,7 +355,7 @@ class Workbench(tk.Tk):
         return value
 
     def build_jobs(self, parent):
-        self.weights = self.field(parent, '模型权重 .pt', str(ROOT/'runs/train/override/weights/best.pt'), lambda: filedialog.askopenfilename(filetypes=[('模型', '*.pt')]))
+        self.weights = self.field(parent, '模型权重 .pt（随包 R10 为实验版）', str(default_robot_weights()), lambda: filedialog.askopenfilename(filetypes=[('模型', '*.pt')]))
         self.source = self.field(parent, '图片 / 视频 / 摄像头', '', lambda: filedialog.askopenfilename(filetypes=[('媒体', '*.jpg *.jpeg *.png *.mp4 *.avi *.mov *.mkv'), ('所有文件', '*.*')]))
         self.output = self.field(parent, '结果保存文件夹', str(ROOT/'runs/desktop'), lambda: filedialog.askdirectory())
         self.confidence = self.field(parent, '置信度阈值', '0.35')

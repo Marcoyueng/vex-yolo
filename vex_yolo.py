@@ -5,6 +5,7 @@ import math
 from pathlib import Path
 
 from schema import CLASSES, ensure_schema
+from model_bundle import default_robot_weights
 
 
 def validate_dataset(root):
@@ -170,7 +171,7 @@ def main():
     p.add_argument('--epochs', type=int, default=100); p.add_argument('--batch', type=int, default=8)
     p.add_argument('--imgsz', type=int, default=960); p.add_argument('--device', default='cpu'); p.set_defaults(func=train)
     p = sub.add_parser('predict')
-    p.add_argument('--weights', default='runs/train/override/weights/best.pt'); p.add_argument('--source', required=True)
+    p.add_argument('--weights', default=str(default_robot_weights())); p.add_argument('--source', required=True)
     p.add_argument('--output', default='runs/predict/override'); p.add_argument('--conf', type=float, default=.35)
     p.add_argument('--imgsz', type=int, default=960); p.add_argument('--device', default='cpu')
     p.add_argument('--show', action='store_true'); p.set_defaults(func=predict)

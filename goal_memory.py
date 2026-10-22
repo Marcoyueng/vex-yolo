@@ -1,7 +1,9 @@
-"""Optional legal-match persistence assumption for already placed halves.
+"""Provisional count memory during missing camera observations.
 
 Two independent detector samples are required before accepting an increase.
-This is an estimate, not a referee/DQ decision. Manual review may correct it.
+SC3 nesting changes scoring eligibility even when a Pin physically remains.
+Confirmed nesting/removal must override old counts; camera occlusion alone
+does not establish either condition. This module does not detect Cup opacity.
 """
 from copy import deepcopy
 from collections import deque
@@ -44,7 +46,7 @@ class GoalStackMemory:
                     self.counts[goal][color]=accepted if previous is None else max(previous,accepted)
 
     def correct(self,goals):
-        """Explicit reviewed correction may lower an erroneous retained count."""
+        """A reviewed scoring change can lower counts and clear stale evidence."""
         for goal,values in goals.items():
             if goal not in self.counts:continue
             for color in COLORS:
@@ -71,7 +73,9 @@ def retain_goal_counts(observation,counts):
     for goal,view in result['goals'].items():
         score['goals'][goal]['partial']=view['partial']
         if view['partial']:score['complete']=False
-    result.update(score=score,persistence=dict(enabled=True,assumption='placed_halves_remain',scoring_validity='unconfirmed'))
+    result.update(score=score,persistence=dict(enabled=True,
+        assumption='missing_camera_observation_does_not_prove_scoring_change',
+        reviewed_nesting_and_removal_override_memory=True,scoring_validity='unconfirmed'))
     return result
 
 

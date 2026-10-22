@@ -1,0 +1,14 @@
+{
+  "tests_passed": 114,
+  "model_checks": {
+    "robot-r10.pt": "checksum + load + inference passed",
+    "goal-pin-cup-20261019.pt": "checksum + load + inference passed",
+    "toggle-color.pt": "checksum + load + inference passed"
+  },
+  "ui_checks": {
+    "workbench": "created hidden; bundled model selected",
+    "scoreboard": "created hidden"
+  },
+  "accuracy_validation": false,
+  "python": "3.14.5"
+}
