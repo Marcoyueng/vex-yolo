@@ -1,8 +1,8 @@
 {
-  "release": "2026.10.22-r13",
+  "release": "2026.10.23-goal-r4",
   "robot_training_round": 10,
   "replay_review_revision": 13,
-  "pin_goal_retraining_started": false,
+  "pin_goal_retraining_started": true,
   "models": {
     "robot-r10.pt": {
       "sha256": "4f2da7ed2b2741c6739d9ea1bdcff2398197cf4f2c9d3a0ba6fddb569f7fa762",
@@ -44,6 +44,28 @@
       ],
       "inference": "ColorReader with calibrated Toggle regions and face orientation",
       "scoring_validity": "unconfirmed"
+    },
+    "goal-target-r4.pt": {
+      "sha256": "3c9af935d8cab8550ad82b069339d98c9f919b1dbf183d374971326aa035819d",
+      "bytes": 5482522,
+      "scope": [
+        "goal_pin_red",
+        "goal_pin_blue",
+        "goal_pin_yellow"
+      ],
+      "imgsz": 640,
+      "confidence": 0.25,
+      "epochs_this_round": 24,
+      "task": "Visible Pin halves on a calibrated target Goal only",
+      "inference": "goal_target_detector.GoalTargetDetector; native image plus normalized Goal ROIs",
+      "known_example_hits": 26,
+      "known_example_total": 26,
+      "known_example_extras": 0,
+      "independent_match_validation": false,
+      "status": "experimental_pending_new_frame_review",
+      "compatible_with_general_11_class_detector": false,
+      "enabled_in_ui": false
     }
-  }
+  },
+  "goal_target_training_round": 4
 }

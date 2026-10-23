@@ -1,12 +1,14 @@
 {
-  "tests_passed": 114,
+  "tests_passed": 119,
   "model_checks": {
-    "robot-r10.pt": "checksum + load + inference passed",
-    "goal-pin-cup-20261019.pt": "checksum + load + inference passed",
-    "toggle-color.pt": "checksum + load + inference passed"
+    "robot-r10.pt": "sha256 verified",
+    "goal-pin-cup-20261019.pt": "sha256 verified",
+    "toggle-color.pt": "sha256 verified",
+    "goal-target-r4.pt": "sha256 verified"
   },
+  "new_model_check": "load + inference; confirmed empty P15 has no detections",
   "ui_checks": {
-    "workbench": "created hidden; bundled model selected",
+    "workbench": "created hidden; bundled robot model selected",
     "scoreboard": "created hidden"
   },
   "accuracy_validation": false,

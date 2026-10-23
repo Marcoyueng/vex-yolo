@@ -1,13 +1,13 @@
 # MIKO YOLO · 模型与桌面 UI 发布版
 
-本次快照：**2026.10.22 / 机器人训练 R10 / 计分复核代码 R13**。
-包含 Python 桌面标注工作台、比赛画面与比分看板、跟踪和计分复核代码，以及下面三个训练权重。
+本次快照：**2026.10.23 / Goal 计分 Pin 第四轮 / 机器人 R10 / 计分复核代码 R13**。
+包含 Python 桌面标注工作台、比赛画面与比分看板、跟踪和计分复核代码，以及下面四个训练权重。
 这是可安装运行的源码包，**不是免安装 EXE**。建议解压到 X 盘，安装环境和默认输出也保存在该目录。
 
 ## Windows 启动
 
 1. 安装 Python 3.11 或 3.12，包含 Tkinter，并启用 PATH。
-2. 下载 Release 中的 `miko-yolo-2026.10.22-r13-source-models.zip`，解压到 X 盘。
+2. 下载 Release 中的 `miko-yolo-2026.10.23-goal-r4-source-models.zip`，解压到 X 盘。
 3. 双击 `setup.cmd` 安装依赖，再双击 `启动软件.cmd`；比分 UI 入口为 `打开比分看板.cmd`。
 4. 工作台“模型权重”默认选择随包的 `models/robot-r10.pt`。这是最新实验版本，仍有漏检、重框和旧样本退步。
 5. 比分看板通过“打开其他结果”选择你自己的原始视频与归一化逐帧 JSONL。首次下载不包含本机比赛和试播数据。
@@ -20,11 +20,12 @@
 |---|---|---|
 | `models/robot-r10.pt` | 整车检测，R10 本轮 20 epochs、105 张训练图 | 最新实验模型；部分旧样本退步，未通过默认版本晋级 |
 | `models/goal-pin-cup-20261019.pt` | Goal、红/蓝/黄 Pin 半段、Cup | 目前计分回放使用的局部检测模型；需要每场 Goal 标定 |
+| `models/goal-target-r4.pt` | 指定 Goal 上的红、蓝、黄 Pin 半段；独立三类模型 | 第四轮实验候选，不能作为普通 11 类模型加载 |
 | `models/toggle-color.pt` | 四个 Toggle 局部颜色分类 | 通过 `toggle_color.ColorReader` 使用；结合朝向标定 |
 
-校验值、用途和训练范围见 [models/manifest.json](models/manifest.json)。三个权重与本机对应文件逐字节相同。
+校验值、用途和训练范围见 [models/manifest.json](models/manifest.json)。四个权重与本机对应文件逐字节相同。
 模型不识别队号文字；队号来自跟踪关联和人工复核。R13 是回放计分纠正版本，不是第 13 轮训练。
-后续计划中的 Pin／Goal 专项补训**尚未开始**，本包不包含这一轮新训练成果。当前没有独立比赛准确率或零漏检保证。
+新增第四轮目标 Goal 计分 Pin 模型。15 张已确认画面中 26 个有效 Pin 均匹配、额外框为 0；这些是训练或校准画面，不代表新比赛准确率。新画面仍发现漏框及 Cup 误认，模型保留为实验候选，未替换 UI 默认检测模型。
 
 机器人模型的基本调用：
 
@@ -35,6 +36,20 @@ python vex_yolo.py predict --source your-match.mp4 --weights models/robot-r10.pt
 该命令输出像素坐标检测结果；比分看板需要归一化回放记录，二者不能直接互换。
 Goal 专项模型应通过 `field_specialist.Specialist(weights, calibration=...)` 使用，标定含 2048×1152 坐标系下九个 `goals` 和 `field_polygon`。
 不要将一种机位的标定直接用于另一场比赛。计分数量、套叠和有效占领仍需复核。
+
+## 第四轮 Goal 模型
+
+这份模型使用当前图像和目标 Goal 的标定范围，预测属于该 Goal 的可见 Pin 半段。
+它与普通物体检测模型用途不同，不直接替换工作台的机器人权重，也不把遮挡时的零输出当作空 Goal。
+P15 的三个附近 Pin 误计已在已确认样本上消除；新画面的蓝色漏检及 Cup 误认仍待进一步纠正。
+
+调用示例：先准备 `my-goals.json`，内容是当前机位的归一化坐标，例如 `{"G5": [0.69, 0.49, 0.73, 0.54]}`（示例坐标需按自己的画面重做）：
+
+```powershell
+python predict_goal_target.py --image frame.png --goals my-goals.json --output runs/goal-predictions.json
+```
+
+原始比赛视频、训练图片、个人路径与聊天复核记录不作为数据文件发布。UI 仍提供人工复核和估分；新候选输出不是官方裁判分数。
 
 ## 本次更新
 

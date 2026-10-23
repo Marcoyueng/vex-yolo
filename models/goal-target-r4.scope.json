@@ -1,0 +1,11 @@
+{
+  "scope": [
+    "goal_pin_red",
+    "goal_pin_blue",
+    "goal_pin_yellow"
+  ],
+  "confidence": 0.25,
+  "scoring_validity": "unconfirmed",
+  "occluded_goal_count": "unknown",
+  "note": "Three conditional classes; not a replacement for general object detection."
+}
